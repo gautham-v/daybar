@@ -1,0 +1,64 @@
+[package]
+name = "daybar"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gpui = "0.2.2"
+chrono = "0.4"
+futures = "0.3"
+block2 = "0.6"
+anyhow = "1"
+
+objc2 = "0.6"
+
+[dependencies.objc2-foundation]
+version = "0.3"
+features = [
+    "NSString",
+    "NSGeometry",
+    "NSDate",
+    "NSArray",
+    "NSEnumerator",
+    "NSObjCRuntime",
+    "NSValue",
+    "NSError",
+    "NSNotification",
+    "NSRunLoop",
+    "NSThread",
+]
+
+[dependencies.objc2-app-kit]
+version = "0.3"
+features = [
+    "NSApplication",
+    "NSResponder",
+    "NSWindow",
+    "NSView",
+    "NSControl",
+    "NSButton",
+    "NSStatusBar",
+    "NSStatusItem",
+    "NSStatusBarButton",
+    "NSImage",
+    "NSScreen",
+    "NSEvent",
+    "NSPanel",
+    "NSRunningApplication",
+    "objc2-core-foundation",
+]
+
+[dependencies.objc2-event-kit]
+version = "0.3"
+features = [
+    "EKEventStore",
+    "EKEvent",
+    "EKCalendar",
+    "EKCalendarItem",
+    "EKObject",
+    "EKTypes",
+    "block2",
+]
+
+[profile.release]
+opt-level = 2
