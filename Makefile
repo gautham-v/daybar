@@ -1,4 +1,4 @@
-.PHONY: run test check bundle clean
+.PHONY: run install test check bundle clean
 
 # Build the bundle and launch it (kills any running copy first).
 TARGET_DIR := $(shell cargo metadata --no-deps --format-version 1 | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')
@@ -6,6 +6,15 @@ TARGET_DIR := $(shell cargo metadata --no-deps --format-version 1 | sed -n 's/.*
 run: bundle
 	@pkill -x daybar 2>/dev/null || true
 	open "$(TARGET_DIR)/Daybar.app"
+
+# Put the app somewhere permanent and run it from there. Launch-at-login
+# registers whatever path the app was launched from, so a copy that lives in
+# /Applications is the one worth registering.
+install: bundle
+	@pkill -x daybar 2>/dev/null || true
+	rm -rf "/Applications/Daybar.app"
+	cp -R "$(TARGET_DIR)/Daybar.app" "/Applications/Daybar.app"
+	open "/Applications/Daybar.app"
 
 test:
 	cargo test

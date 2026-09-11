@@ -26,6 +26,7 @@ Requires Rust stable and Xcode (GPUI needs the Metal toolchain:
 ```sh
 make run      # release build → target/Daybar.app → open it
 make bundle   # just build the .app
+make install  # copy to /Applications and relaunch from there
 make test     # cargo test
 make check    # cargo fmt --check && cargo clippy --all-targets -D warnings
 ```
@@ -37,6 +38,40 @@ cargo run --example popover_preview
 cargo run --example dump_events -- --stub   # print the next 7 days
 ```
 
+### Launch at login
+
+The `···` menu has a **Launch at login** toggle, backed by `SMAppService` (macOS 13+). It shows
+a checkmark whenever macOS reports the login item as enabled, so it agrees with
+**System Settings › General › Login Items**, where Daybar appears once it is on.
+
+Two things follow from `SMAppService` registering a *path*:
+
+- It only works from the bundled app. Under `cargo run` or the preview example there is no
+  bundle, so the toggle is disabled with a note.
+- Moving the `.app` afterwards leaves the login item pointing at the old location. Toggle it
+  off and on again after a move.
+
+Which is why `make install` is the recommended way to keep it around:
+
+```sh
+make install   # → /Applications/Daybar.app, relaunched from there
+```
+
+### Code signing
+
+The bundle is signed with the first identity `security find-identity -v -p codesigning`
+reports, or with whatever `CODESIGN_IDENTITY` names:
+
+```sh
+CODESIGN_IDENTITY="Apple Development: ..." make bundle
+```
+
+A stable identity matters. An ad-hoc signature (`-`) gives every rebuild a different code
+identity, so macOS treats each build as a brand-new app and re-prompts for calendar access on
+every single launch. With no identity on the machine the script falls back to ad-hoc and says
+so. Switching from ad-hoc to a real identity prompts once more for the existing item — choose
+**Always Allow** that first time and it stops asking.
+
 ## Calendar permission
 
 On first launch macOS asks for full calendar access. The prompt only appears for the bundled
@@ -44,7 +79,8 @@ On first launch macOS asks for full calendar access. The prompt only appears for
 builds a bundle rather than running the bare binary. Until access is granted the popover simply
 shows no events; grant or revoke it later in **System Settings › Privacy & Security › Calendars**.
 
-The app is ad-hoc signed, so a rebuild can occasionally reset that grant and re-prompt.
+Grants are attached to the bundle's code signature, so see "Code signing" below if a rebuild
+keeps re-prompting.
 
 Events are cached 60 days back and 90 days ahead, refetched every 5 minutes and every time the
 popover opens.
@@ -75,8 +111,8 @@ location or notes. An event that merely carries a link (an agenda doc, a ticket)
 **Open link** instead — `EKEvent.URL` is a general-purpose field, not a meeting. **Open in Google
 Calendar** opens the day in the browser.
 
-The `···` button in the header holds **Refresh** (refetch now, without closing) and **Quit
-Daybar**. "Launch at login" is a placeholder and does nothing yet.
+The `···` button in the header holds **Refresh** (refetch now, without closing), **Launch at
+login** and **Quit Daybar**.
 
 ## Layout
 

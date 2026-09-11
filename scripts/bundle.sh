@@ -55,9 +55,23 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# Ad-hoc signature so TCC can attach a stable identity to the bundle.
-codesign --force --sign - "$APP" 2>/dev/null || \
-  echo "warning: ad-hoc codesign failed; calendar permission may not stick"
+# Sign with a stable identity when the machine has one. Ad-hoc signatures get a
+# fresh code identity on every rebuild, which makes macOS treat each build as a
+# different app: TCC re-prompts for calendar access (and mailbar re-prompts for
+# its Keychain item) every single launch. Override with CODESIGN_IDENTITY.
+IDENTITY="${CODESIGN_IDENTITY:-}"
+if [ -z "$IDENTITY" ]; then
+  IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -n 's/.*"\(.*\)"/\1/p' | head -n 1)"
+fi
+if [ -n "$IDENTITY" ]; then
+  codesign --force --options runtime --sign "$IDENTITY" "$APP" \
+    || echo "warning: codesign with '$IDENTITY' failed; calendar permission may not stick"
+else
+  echo "note: no codesigning identity found; signing ad-hoc, so macOS will re-prompt on every rebuild"
+  codesign --force --sign - "$APP" 2>/dev/null \
+    || echo "warning: ad-hoc codesign failed; calendar permission may not stick"
+fi
 
 echo "built $APP"
 

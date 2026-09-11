@@ -10,10 +10,11 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     actions, div, px, svg, AnyWindowHandle, App, Context, Entity, EventEmitter, FocusHandle,
     Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding, ParentElement, Pixels,
-    Render, StatefulInteractiveElement, Styled, Window,
+    Render, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
 use crate::calendar::AccessState;
+use crate::launch_at_login;
 use crate::model::{self, Event};
 use crate::ui::icons;
 use crate::ui::theme::Theme;
@@ -89,6 +90,8 @@ pub struct Popover {
     focused_row: Option<usize>,
     /// Whether the "···" menu is showing.
     menu_open: bool,
+    /// The last "Launch at login" failure, shown under the menu row.
+    login_error: Option<SharedString>,
     /// Colors for the window's current appearance, refreshed each render.
     theme: Theme,
     /// Redraws the popover when the system flips between light and dark.
@@ -114,6 +117,7 @@ impl Popover {
             expanded: None,
             focused_row: None,
             menu_open: false,
+            login_error: None,
             theme: Theme::default(),
             appearance: None,
             provider,
@@ -445,6 +449,70 @@ impl Popover {
             ))
     }
 
+    /// The "Launch at login" row: a checkmark that reflects `SMAppService`'s
+    /// own status, so it agrees with System Settings rather than with a local
+    /// copy of the state. Disabled outside a bundle, with the reason under it.
+    fn launch_at_login_item(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let available = launch_at_login::availability() == launch_at_login::Availability::Ready;
+        let checked = launch_at_login::is_enabled();
+        let note = |message: SharedString| {
+            div()
+                .px(px(10.))
+                .pb(px(4.))
+                .text_size(px(10.))
+                .line_height(px(13.))
+                .text_color(theme.tertiary)
+                .child(message)
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id("menu-login")
+                    .px(px(10.))
+                    .py(px(5.))
+                    .rounded(px(5.))
+                    .text_size(theme::TEXT_SMALL)
+                    .line_height(px(17.))
+                    .text_color(if available {
+                        theme.text
+                    } else {
+                        theme.tertiary
+                    })
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .when(available, |el| {
+                        el.cursor_pointer()
+                            .hover(|s| s.bg(theme.hover))
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_launch_at_login(cx)))
+                    })
+                    .child("Launch at login")
+                    .child(if checked { "\u{2713}" } else { "" }),
+            )
+            .when(!available, |el| {
+                el.child(note(launch_at_login::NO_BUNDLE_NOTE.into()))
+            })
+            .when_some(self.login_error.clone(), |el, message| {
+                el.child(note(message))
+            })
+    }
+
+    /// Flip the login item, keeping whatever `SMAppService` complained about so
+    /// the menu can show it rather than failing silently.
+    fn toggle_launch_at_login(&mut self, cx: &mut Context<Self>) {
+        let wanted = !launch_at_login::is_enabled();
+        self.login_error = launch_at_login::set_enabled(wanted).err().map(Into::into);
+        if self.login_error.is_none() {
+            self.menu_open = false;
+        }
+        cx.notify();
+    }
+
     /// The "···" dropdown, drawn over the grid inside the popover.
     fn menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
@@ -489,7 +557,7 @@ impl Popover {
                 cx.emit(PopoverEvent::Refresh);
                 cx.notify();
             }))
-            .child(item("menu-login", "Launch at login", false, cx, |_, _| {}))
+            .child(self.launch_at_login_item(cx))
             .child(div().h(px(1.)).my(px(4.)).bg(theme.separator))
             .child(item("menu-quit", "Quit Daybar", true, cx, |this, cx| {
                 this.menu_open = false;

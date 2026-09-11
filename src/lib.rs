@@ -8,6 +8,7 @@
 #![allow(dead_code)]
 
 pub mod calendar;
+pub mod launch_at_login;
 pub mod menu_bar_icon;
 pub mod model;
 pub mod status_item;

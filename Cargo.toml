@@ -11,6 +11,7 @@ block2 = "0.6"
 anyhow = "1"
 
 objc2 = "0.6"
+objc2-service-management = { version = "0.3.2", default-features = false, features = ["SMAppService", "std", "objc2", "objc2-foundation"] }
 
 [dependencies.objc2-core-graphics]
 version = "0.3"
@@ -31,6 +32,7 @@ features = [
     "NSNotification",
     "NSRunLoop",
     "NSThread",
+    "NSBundle",
     "NSAttributedString",
     "NSDictionary",
 ]
