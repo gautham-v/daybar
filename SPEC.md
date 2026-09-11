@@ -41,3 +41,38 @@ gpui 0.2, objc2 0.6 family (objc2-foundation, objc2-app-kit, objc2-event-kit), c
 - `src/ui/` — `popover.rs` root view, `month_grid.rs`, `day_list.rs`, `week_list.rs`, `theme.rs`
 - `scripts/bundle.sh` — builds `target/release/daybar` into `target/Daybar.app` with Info.plist
 - `Makefile` — `make run` (bundle + open), `make test`, `make check`
+
+## v2 — native look and inline event details (approved 2026-09-11)
+Reference: `docs/mockup-v2-inline-expand.dc.html` (option A, approved).
+
+### Visual
+- Replace the warm paper palette with a native macOS material look: popover background
+  `rgba(240,240,242,0.96)` light (`rgba(40,40,42,0.96)` dark), text `#1d1d1f`, secondary `#6e6e73`,
+  tertiary `#aeaeb2`, separators `rgba(0,0,0,0.08)`, today = filled system blue `#0a7aff` circle
+  26px with white bold number, selected (non-today) day = `rgba(0,0,0,0.08)` filled circle.
+  Follow the system appearance (light/dark) automatically.
+- Popover 300px wide, 11px radius, hairline border `rgba(0,0,0,0.12)`.
+- Header: ‹ › as small 22px chevron buttons on the left, month title centered, a "···" button on the
+  right that opens a small menu (Quit, Refresh, Launch at login placeholder). No Day/Week segmented
+  control in the header.
+- Grid: week-number column 22px, cells 32px tall, 12px text, 3px event dot under days with events,
+  out-of-month days `#c7c7cc`, weekends `#aeaeb2`.
+- Event rows: 3px rounded color bar (the event's calendar color from EventKit's `CGColor`), title
+  500 weight, second line `HH:MM – HH:MM` in 11px secondary, "· in 20 min" appended for the next
+  upcoming event today. Past events at 45% opacity. Chevron at the right, rotates 90° when expanded.
+- Footer: left "Fri, Sep 11 · 12:40" (selected date; live clock only when today), right "Today" and
+  "Week" text buttons (Week toggles the week list mode as before).
+- Menu bar: day number only (already done).
+
+### Inline expand (option A)
+- Clicking an event row (or pressing Enter/Space on a keyboard-focused row) expands it in place
+  with: location (with pin icon), attendees (with people icon; names from EKParticipant, "you"
+  for the current user, collapsed to "Chetan, Priya, you"; skip when none), notes (plain text,
+  clamped to ~6 lines), then buttons: "Join" (only if the event has a URL, or a Zoom/Meet/Teams
+  link found in location/notes/url; opens it) and "Open in Google Calendar" (existing day URL).
+- Only one row expanded at a time; clicking again collapses. Expanded row background
+  `rgba(0,0,0,0.045)`. Popover window grows/shrinks to fit.
+- Keyboard: ↑/↓ move a focused row within the list when a row is focused (Tab or clicking enters the
+  list); Left/Right still move days; Esc collapses an expanded row first, then closes the popover.
+- Model: extend `Event` with `calendar_color: Option<Rgba-ish (r,g,b)>`, `notes: Option<String>`,
+  `url: Option<String>`, `attendees: Vec<String>`, `is_current_user_attendee` handled in mapping.
