@@ -57,6 +57,15 @@ impl CalendarStore {
         }
     }
 
+    /// Prompt for calendar access if the source needs it, then record the
+    /// resulting state. Blocks; call it from a background thread.
+    pub fn request_access(&self) -> AccessState {
+        let mut inner = self.lock();
+        let access = inner.source.ensure_access();
+        inner.access = access;
+        access
+    }
+
     /// Refetch the whole window around today.
     pub fn refresh(&self) {
         self.refresh_as_of(Local::now().date_naive());

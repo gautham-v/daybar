@@ -5,8 +5,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{div, px, FontWeight, IntoElement, ParentElement, Styled};
 
-use crate::model::Event;
-use crate::ui::format;
+use crate::model::{self, Event};
+
 use crate::ui::popover::{Popover, LIST_PAD_BOTTOM, LIST_PAD_TOP};
 use crate::ui::theme;
 
@@ -46,7 +46,7 @@ fn next_up(events: &[Event], now: chrono::NaiveDateTime, is_today: bool) -> Opti
     }
     events
         .iter()
-        .position(|e| !e.all_day && !format::is_past(e.end, now))
+        .position(|e| !e.all_day && !model::is_past(e.end, now))
 }
 
 pub fn render(state: &Popover) -> impl IntoElement {
@@ -59,10 +59,10 @@ pub fn render(state: &Popover) -> impl IntoElement {
     let next = next_up(&events, now, is_today);
     let remaining = events
         .iter()
-        .filter(|e| e.all_day || !format::is_past(e.end, now))
+        .filter(|e| e.all_day || !model::is_past(e.end, now))
         .count();
 
-    let summary = format::day_summary(events.len(), remaining, is_today);
+    let summary = model::day_summary(events.len(), remaining, is_today);
 
     div()
         .flex()
@@ -83,7 +83,7 @@ pub fn render(state: &Popover) -> impl IntoElement {
                     div()
                         .text_size(theme::TEXT_BODY)
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(format::day_title(date, today)),
+                        .child(model::day_title(date, today)),
                 )
                 .child(
                     div()
@@ -105,12 +105,12 @@ pub fn render(state: &Popover) -> impl IntoElement {
             )
         })
         .children(events.into_iter().enumerate().map(move |(i, event)| {
-            let past = is_today && !event.all_day && format::is_past(event.end, now);
+            let past = is_today && !event.all_day && model::is_past(event.end, now);
             let is_next = next == Some(i);
             let time = if event.all_day {
                 "all-day".to_string()
             } else {
-                format::short_time(event.start.time())
+                model::short_time(event.start.time())
             };
 
             div()
@@ -140,10 +140,14 @@ pub fn render(state: &Popover) -> impl IntoElement {
                     div()
                         .flex()
                         .flex_col()
+                        .min_w_0()
+                        .overflow_hidden()
                         .gap(px(2.))
                         .child(
                             div()
                                 .font_weight(FontWeight::MEDIUM)
+                                .overflow_hidden()
+                                .text_ellipsis()
                                 .child(event.title.clone()),
                         )
                         .children(event.location.clone().map(|l| {

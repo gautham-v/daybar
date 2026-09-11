@@ -141,6 +141,10 @@ impl CalendarSource for EventKitSource {
     fn access_state(&self) -> AccessState {
         self.access
     }
+
+    fn ensure_access(&mut self) -> AccessState {
+        EventKitSource::request_access(self)
+    }
 }
 
 /// The current system authorization status for calendar events.

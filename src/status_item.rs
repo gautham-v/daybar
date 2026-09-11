@@ -198,7 +198,7 @@ fn install_outside_click_monitor(
     let handler = RcBlock::new(move |_event: core::ptr::NonNull<NSEvent>| {
         let _ = tx.unbounded_send(StatusItemEvent::ClickedOutside);
     });
-    let monitor = unsafe { NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &handler) };
+    let monitor = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &handler);
     if monitor.is_none() {
         eprintln!("daybar: global mouse monitor unavailable; outside clicks will not dismiss");
     }

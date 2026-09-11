@@ -10,7 +10,7 @@ use gpui::{
 };
 
 use crate::model;
-use crate::ui::format;
+
 use crate::ui::popover::{Popover, LIST_PAD_BOTTOM, LIST_PAD_TOP};
 use crate::ui::theme;
 
@@ -81,7 +81,7 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
                                 .text_size(theme::TEXT_MICRO)
                                 .line_height(px(12.))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child(format::dow_abbrev(date)),
+                                .child(model::dow_abbrev(date)),
                         )
                         .child(
                             div()
@@ -111,12 +111,13 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
                             let time = if event.all_day {
                                 "all-day".to_string()
                             } else {
-                                format::short_time(event.start.time())
+                                model::short_time(event.start.time())
                             };
                             div()
                                 .flex()
                                 .flex_row()
                                 .gap(px(8.))
+                                .overflow_hidden()
                                 .text_size(theme::TEXT_SMALL)
                                 .child(
                                     div()
@@ -128,6 +129,9 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
                                 )
                                 .child(
                                     div()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .text_ellipsis()
                                         .font_weight(FontWeight::MEDIUM)
                                         .child(event.title.clone()),
                                 )

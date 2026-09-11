@@ -159,6 +159,11 @@ impl Popover {
         cx.notify();
     }
 
+    /// Back to today in Day mode — what a fresh popover open should show.
+    pub fn reset(&mut self, cx: &mut Context<Self>) {
+        self.go_today(cx);
+    }
+
     fn go_today(&mut self, cx: &mut Context<Self>) {
         let today = self.today();
         self.mode = Mode::Day;

@@ -74,4 +74,13 @@ pub trait CalendarSource {
     fn access_state(&self) -> AccessState {
         AccessState::Granted
     }
+
+    /// Prompt for access if it has not been decided yet, blocking until the
+    /// user answers. Sources that need no permission do nothing.
+    ///
+    /// Must be called off the main thread: the prompt is answered on another
+    /// queue and this blocks meanwhile.
+    fn ensure_access(&mut self) -> AccessState {
+        self.access_state()
+    }
 }

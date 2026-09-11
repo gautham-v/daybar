@@ -33,7 +33,7 @@ impl StubSource {
 
         // Weekends are quiet apart from the occasional all-day item.
         if dow == 0 || dow == 6 {
-            if dom % 7 == 0 {
+            if dom.is_multiple_of(7) {
                 events.push(Event {
                     id: format!("stub-{day}-offsite"),
                     title: "Offsite".into(),
@@ -66,7 +66,7 @@ impl StubSource {
             });
         }
 
-        if dom % 3 == 0 {
+        if dom.is_multiple_of(3) {
             events.push(Event {
                 id: format!("stub-{day}-review"),
                 title: "Design review".into(),
@@ -77,7 +77,7 @@ impl StubSource {
             });
         }
 
-        if dom % 5 == 0 {
+        if dom.is_multiple_of(5) {
             events.push(Event {
                 id: format!("stub-{day}-holiday"),
                 title: "Company holiday".into(),

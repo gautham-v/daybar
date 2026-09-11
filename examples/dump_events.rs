@@ -10,23 +10,12 @@
 //! terminal app running it already has Calendar access (System Settings ›
 //! Privacy & Security › Calendars › your terminal). The bundled `Daybar.app`
 //! is the real test. `--stub` always works.
-//!
-//! The example re-includes the source modules by path because daybar is a
-//! binary-only crate.
-
-#![allow(dead_code)]
-
-#[path = "../src/model.rs"]
-mod model;
-
-#[path = "../src/calendar/mod.rs"]
-mod calendar;
 
 use chrono::{Duration, Local};
 
-use calendar::eventkit::EventKitSource;
-use calendar::stub::StubSource;
-use calendar::{CalendarSource, CalendarStore};
+use daybar::calendar::eventkit::EventKitSource;
+use daybar::calendar::stub::StubSource;
+use daybar::calendar::{CalendarSource, CalendarStore};
 
 fn main() {
     let use_stub = std::env::args().any(|a| a == "--stub");

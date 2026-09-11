@@ -9,4 +9,5 @@
 
 pub mod calendar;
 pub mod model;
+pub mod status_item;
 pub mod ui;
