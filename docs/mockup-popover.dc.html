@@ -1,0 +1,203 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; } a:hover { color: inherit; }
+  </style>
+</helmet>
+<div style="width: 420px; height: 660px; box-sizing: border-box; background: #d7d3cc; position: relative; overflow: hidden; font-size: 13px; color: #1a1a1a;">
+
+  <div style="height: 28px; background: #ebe9e5; border-bottom: 1px solid #cfcbc4; display: flex; flex-direction: row; justify-content: flex-end; align-items: center; gap: 18px; padding: 0 14px; font-size: 13px;">
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 6px; background: #d2cec7; padding: 3px 8px; border-radius: 5px; font-weight: 500;">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#1a1a1a" stroke-width="1.4" stroke-linecap="round"><rect x="2" y="3" width="12" height="11" rx="2"></rect><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"></path></svg>
+      <div>Thu 11</div>
+    </div>
+    <div>12:40</div>
+  </div>
+
+  <div style="position: absolute; top: 34px; right: 12px; width: 320px; background: #fbfaf8; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.06); display: flex; flex-direction: column; overflow: hidden;">
+
+    <div style="display: flex; flex-direction: row; justify-content: space-between; align-items: center; padding: 14px 16px 8px 16px;">
+      <div style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">{{ monthTitle }}</div>
+      <div style="display: flex; flex-direction: row; gap: 2px; background: #efece7; border-radius: 6px; padding: 2px;">
+        <div onClick="{{ setDay }}" style="padding: 3px 10px; border-radius: 5px; font-size: 12px; font-weight: 500; cursor: pointer; background: {{ dayTabBg }}; color: {{ dayTabFg }};">Day</div>
+        <div onClick="{{ setWeek }}" style="padding: 3px 10px; border-radius: 5px; font-size: 12px; font-weight: 500; cursor: pointer; background: {{ weekTabBg }}; color: {{ weekTabFg }};">Week</div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0; padding: 0 12px 4px 12px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: #a3a099; text-align: center;">
+      <div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 12px 10px 12px;">
+      <sc-for list="{{ weeks }}" as="week" hint-placeholder-count="5">
+        <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px;">
+          <sc-for list="{{ week.days }}" as="d" hint-placeholder-count="7">
+            <div onClick="{{ d.pick }}" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; height: 34px; border-radius: 7px; cursor: pointer; font-size: 13px; background: {{ d.bg }}; color: {{ d.fg }}; font-weight: {{ d.fw }};">
+              <div>{{ d.label }}</div>
+              <div style="width: 4px; height: 4px; border-radius: 2px; background: {{ d.dot }};"></div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="height: 1px; background: #ebe8e2; margin: 0 16px;"></div>
+
+    <sc-if value="{{ isDay }}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; flex-direction: column; gap: 0; padding: 10px 16px 6px 16px; min-height: 200px;">
+        <div style="display: flex; flex-direction: row; justify-content: space-between; align-items: baseline; padding: 4px 0 8px 0;">
+          <div style="font-size: 13px; font-weight: 600;">{{ dayTitle }}</div>
+          <div style="font-size: 12px; color: #8a8781;">{{ daySummary }}</div>
+        </div>
+        <sc-if value="{{ dayEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 24px 0; text-align: center; font-size: 12px; color: #a3a099; font-style: italic;">nothing scheduled</div>
+        </sc-if>
+        <sc-for list="{{ dayEvents }}" as="e" hint-placeholder-count="3">
+          <div style="display: flex; flex-direction: row; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f0ede8; opacity: {{ e.opacity }};">
+            <div style="width: 40px; flex-shrink: 0; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: {{ e.tc }}; font-weight: {{ e.tw }}; padding-top: 1px;">{{ e.t }}</div>
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <div style="font-weight: 500;">{{ e.n }}</div>
+              <sc-if value="{{ e.hasL }}" hint-placeholder-val="{{ true }}">
+                <div style="font-size: 12px; color: #8a8781;">{{ e.l }}</div>
+              </sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isWeek }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 0; padding: 10px 16px 6px 16px; min-height: 200px;">
+        <sc-for list="{{ weekDays }}" as="wd" hint-placeholder-count="7">
+          <div style="display: flex; flex-direction: row; gap: 12px; padding: 7px 0; border-bottom: 1px solid #f0ede8;">
+            <div style="width: 40px; flex-shrink: 0; display: flex; flex-direction: column; gap: 0; padding-top: 1px;">
+              <div style="font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: {{ wd.fg }};">{{ wd.dow }}</div>
+              <div style="font-size: 13px; font-weight: 600; color: {{ wd.fg }};">{{ wd.num }}</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1;">
+              <sc-if value="{{ wd.empty }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size: 12px; color: #b5b2ab; padding-top: 2px;">–</div>
+              </sc-if>
+              <sc-for list="{{ wd.events }}" as="e" hint-placeholder-count="2">
+                <div style="display: flex; flex-direction: row; gap: 8px; font-size: 12px;">
+                  <div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; color: #8a8781; width: 38px; flex-shrink: 0;">{{ e.t }}</div>
+                  <div style="font-weight: 500;">{{ e.n }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <div style="display: flex; flex-direction: row; justify-content: space-between; align-items: center; padding: 8px 16px 10px 16px; font-size: 11px; color: #a3a099; background: #f6f4f0; border-top: 1px solid #ebe8e2;">
+      <div style="display: flex; flex-direction: row; gap: 10px;">
+        <div><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace;">←→</span> day</div>
+        <div><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace;">⏎</span> open in Google Calendar</div>
+      </div>
+      <div onClick="{{ goToday }}" style="cursor: pointer; font-weight: 500; color: #8a8781;">Today</div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":420,"height":660}}'>
+class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    this.state = { sel: '2026-09-11', mode: 'day' };
+  }
+  renderVals() {
+    const today = '2026-09-11';
+    const nowMin = 12 * 60 + 40;
+    const EV = {
+      '2026-09-08': [{ t: '9:00', m: 540, n: 'Standup' }],
+      '2026-09-09': [{ t: '11:00', m: 660, n: 'Design review', l: 'Zoom' }],
+      '2026-09-11': [
+        { t: '9:00', m: 540, n: 'Standup' },
+        { t: '10:30', m: 630, n: '1:1 with Sam' },
+        { t: '1:00', m: 780, n: 'Lunch with Sam', l: 'Tartine · 12 min walk' },
+        { t: '3:00', m: 900, n: 'Product sync', l: 'Zoom · 45 min' },
+        { t: '4:30', m: 990, n: 'Dentist', l: '450 Sutter St' }
+      ],
+      '2026-09-12': [{ t: '9:30', m: 570, n: 'Flight to SEA' }, { t: '7:00', m: 1140, n: 'Dinner' }],
+      '2026-09-14': [{ t: '9:00', m: 540, n: 'Standup' }, { t: '2:00', m: 840, n: 'Offsite planning', l: 'Room 4B' }],
+      '2026-09-17': [{ t: '4:00', m: 960, n: 'Dentist follow-up' }],
+      '2026-09-22': [{ t: '9:00', m: 540, n: 'Standup' }]
+    };
+    const DOW = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const key = (d) => d.toISOString().slice(0, 10);
+    const mk = (y, m, day) => new Date(Date.UTC(y, m, day));
+    const sel = this.state.sel;
+    const mode = this.state.mode;
+
+    // grid: Aug 31 – Oct 4, 2026 (Monday start)
+    const start = mk(2026, 7, 31);
+    const weeks = [];
+    for (let w = 0; w < 5; w++) {
+      const days = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(start.getTime() + (w * 7 + i) * 86400000);
+        const k = key(d);
+        const inMonth = d.getUTCMonth() === 8;
+        const isSel = k === sel;
+        const isToday = k === today;
+        const has = !!EV[k];
+        days.push({
+          label: String(d.getUTCDate()),
+          bg: isSel ? '#1a1a1a' : 'transparent',
+          fg: isSel ? '#fbfaf8' : (isToday ? '#c2410c' : (inMonth ? '#1a1a1a' : '#c9c5be')),
+          fw: (isSel || isToday) ? '600' : '400',
+          dot: has ? (isSel ? '#fbfaf8' : (inMonth ? '#c9c5be' : '#e6e3dd')) : 'transparent',
+          pick: () => this.setState({ sel: k, mode: 'day' })
+        });
+      }
+      weeks.push({ days });
+    }
+
+    const sd = new Date(sel + 'T00:00:00Z');
+    const dowIdx = (sd.getUTCDay() + 6) % 7;
+    const isToday = sel === today;
+    const dayEvents = (EV[sel] || []).map((e) => {
+      const past = isToday && e.m < nowMin;
+      const next = isToday && !past && !(EV[sel] || []).some((o) => o.m >= nowMin && o.m < e.m);
+      return { ...e, hasL: !!e.l, l: e.l || '', opacity: past ? '0.4' : '1', tc: next ? '#c2410c' : '#8a8781', tw: next ? '600' : '400' };
+    });
+    const left = isToday ? dayEvents.filter((e) => e.m >= nowMin).length : dayEvents.length;
+    const dayTitle = isToday ? 'Today' : `${LONG[dowIdx]} ${sd.getUTCDate()}`;
+    const daySummary = dayEvents.length === 0 ? '' : (isToday ? `${left} left` : `${dayEvents.length} events`);
+
+    // week containing selection
+    const ws = new Date(sd.getTime() - dowIdx * 86400000);
+    const weekDays = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(ws.getTime() + i * 86400000);
+      const k = key(d);
+      const evs = EV[k] || [];
+      weekDays.push({ dow: DOW[i], num: String(d.getUTCDate()), fg: k === today ? '#c2410c' : '#8a8781', events: evs, empty: evs.length === 0 });
+    }
+
+    return {
+      monthTitle: 'September 2026',
+      weeks, dayTitle, daySummary, dayEvents, dayEmpty: dayEvents.length === 0,
+      isDay: mode === 'day', isWeek: mode === 'week', weekDays,
+      dayTabBg: mode === 'day' ? '#fbfaf8' : 'transparent', dayTabFg: mode === 'day' ? '#1a1a1a' : '#8a8781',
+      weekTabBg: mode === 'week' ? '#fbfaf8' : 'transparent', weekTabFg: mode === 'week' ? '#1a1a1a' : '#8a8781',
+      setDay: () => this.setState({ mode: 'day' }),
+      setWeek: () => this.setState({ mode: 'week' }),
+      goToday: () => this.setState({ sel: today, mode: 'day' })
+    };
+  }
+}
+</script>
+</body>
+</html>
