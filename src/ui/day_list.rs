@@ -49,22 +49,50 @@ pub fn empty_notice(access: AccessState) -> &'static str {
     access.message().unwrap_or("nothing scheduled")
 }
 
-/// How many lines the notes block will take once clamped.
-fn notes_lines(notes: &str) -> usize {
-    notes
-        .lines()
-        .map(|line| line.len().div_ceil(NOTES_CHARS_PER_LINE).max(1))
-        .sum::<usize>()
-        .clamp(1, NOTES_MAX_LINES)
+/// Wrap a notes body to [`NOTES_CHARS_PER_LINE`] and clamp it to
+/// [`NOTES_MAX_LINES`] visual lines, so the drawn text and the height we
+/// reserve for it agree.
+fn wrapped_notes(notes: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in notes.lines() {
+        if line.trim().is_empty() {
+            out.push(String::new());
+        }
+        let mut rest = line.trim_end();
+        while !rest.is_empty() {
+            let take = rest
+                .char_indices()
+                .nth(NOTES_CHARS_PER_LINE)
+                .map(|(i, _)| i)
+                .unwrap_or(rest.len());
+            // Prefer breaking on a space inside the window.
+            let cut = if take == rest.len() {
+                take
+            } else {
+                rest[..take].rfind(' ').map(|i| i + 1).unwrap_or(take)
+            };
+            out.push(rest[..cut].trim_end().to_string());
+            rest = rest[cut..].trim_start();
+        }
+        if out.len() > NOTES_MAX_LINES {
+            break;
+        }
+    }
+    out.truncate(NOTES_MAX_LINES);
+    if out.is_empty() {
+        out.push(String::new());
+    }
+    out
 }
 
-/// The notes text actually drawn: clamped to [`NOTES_MAX_LINES`] lines.
+/// How many lines the notes block will take once clamped.
+fn notes_lines(notes: &str) -> usize {
+    wrapped_notes(notes).len()
+}
+
+/// The notes text actually drawn: wrapped and clamped to [`NOTES_MAX_LINES`].
 fn clamped_notes(notes: &str) -> String {
-    notes
-        .lines()
-        .take(NOTES_MAX_LINES)
-        .collect::<Vec<_>>()
-        .join("\n")
+    wrapped_notes(notes).join("\n")
 }
 
 /// Extra height an expanded row adds under its collapsed self.
@@ -76,8 +104,8 @@ pub(crate) fn detail_height(event: &Event) -> f32 {
     if event.attendee_line().is_some() {
         blocks.push(DETAIL_LINE);
     }
-    if let Some(notes) = event.notes.as_deref() {
-        blocks.push(notes_lines(notes) as f32 * NOTES_LINE);
+    if let Some(notes) = event.notes_display() {
+        blocks.push(notes_lines(&notes) as f32 * NOTES_LINE);
     }
     blocks.push(BUTTON_ROW);
 
@@ -322,12 +350,12 @@ fn details(event: &Event, theme: &Theme, cx: &mut Context<Popover>) -> impl Into
         .pr(px(8.))
         .children(event.location.clone().map(|l| detail_row("◎", l)))
         .children(event.attendee_line().map(|a| detail_row("⚇", a)))
-        .children(event.notes.as_deref().map(|notes| {
+        .children(event.notes_display().map(|notes| {
             div()
                 .text_size(theme::TEXT_SMALL)
                 .line_height(px(NOTES_LINE))
                 .text_color(theme.secondary)
-                .child(clamped_notes(notes))
+                .child(clamped_notes(&notes))
         }))
         .child(
             div()
@@ -445,6 +473,26 @@ mod tests {
             content_height(&[], AccessState::Denied, None)
                 > content_height(&[], AccessState::Granted, None)
         );
+    }
+
+    #[test]
+    fn long_notes_lines_wrap_and_the_reserved_height_matches() {
+        let long = "x".repeat(NOTES_CHARS_PER_LINE * 4);
+        let drawn = clamped_notes(&long);
+        assert_eq!(drawn.lines().count(), 4);
+        assert_eq!(notes_lines(&long), drawn.lines().count());
+        // A single source line that wraps past the clamp is cut, not overflowed.
+        let very_long = "y".repeat(NOTES_CHARS_PER_LINE * 20);
+        assert_eq!(clamped_notes(&very_long).lines().count(), NOTES_MAX_LINES);
+    }
+
+    #[test]
+    fn wrapping_breaks_on_spaces() {
+        let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
+        for line in clamped_notes(text).lines() {
+            assert!(line.len() <= NOTES_CHARS_PER_LINE, "{line:?}");
+            assert!(!line.starts_with(' '));
+        }
     }
 
     #[test]

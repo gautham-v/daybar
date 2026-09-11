@@ -65,6 +65,63 @@ impl Event {
             Some(self.attendees.join(", "))
         }
     }
+
+    /// Notes cleaned up for display: real calendar invites arrive as HTML with
+    /// Google's `~:~:~` separator banners in them. The raw text is kept on the
+    /// event because [`Event::join_url`] scans it for meeting links.
+    pub fn notes_display(&self) -> Option<String> {
+        let cleaned = clean_notes(self.notes.as_deref()?);
+        (!cleaned.is_empty()).then_some(cleaned)
+    }
+}
+
+/// Strip HTML tags and entities, drop invite separator banners, and collapse
+/// runs of blank lines.
+fn clean_notes(raw: &str) -> String {
+    let mut text = String::with_capacity(raw.len());
+    let mut in_tag = false;
+    for ch in raw.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => text.push(c),
+            _ => {}
+        }
+    }
+    for (from, to) in [
+        ("&nbsp;", " "),
+        ("&amp;", "&"),
+        ("&lt;", "<"),
+        ("&gt;", ">"),
+        ("&quot;", "\""),
+        ("&#39;", "'"),
+    ] {
+        text = text.replace(from, to);
+    }
+
+    let mut out: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        let line = line.trim_end();
+        // Google's "-::~:~::~:~..." banner, and any line of pure punctuation.
+        let is_banner = line.len() > 8
+            && line
+                .chars()
+                .all(|c| matches!(c, '~' | ':' | '-' | '_' | '=' | '*' | '·'));
+        if is_banner {
+            continue;
+        }
+        if line.trim().is_empty() && out.last().is_some_and(|l| l.trim().is_empty()) {
+            continue;
+        }
+        out.push(line);
+    }
+    while out.first().is_some_and(|l| l.trim().is_empty()) {
+        out.remove(0);
+    }
+    while out.last().is_some_and(|l| l.trim().is_empty()) {
+        out.pop();
+    }
+    out.join("\n")
 }
 
 /// Order attendee names for display: everyone else alphabetically (case
@@ -531,12 +588,37 @@ mod tests {
     }
 
     #[test]
+    fn notes_display_strips_html_and_invite_banners() {
+        let e = Event {
+            notes: Some(
+                "<b>Booked by</b>\nGautham &amp; co\n\n\n-::~:~::~:~::~:~::~:~::-\n~:~:~:~:~:~:~:~:~:~:~:-\nJoin with Google Meet: https://meet.google.com/foi-zmkn-gpd\n"
+                    .into(),
+            ),
+            ..Event::default()
+        };
+        assert_eq!(
+            e.notes_display().unwrap(),
+            "Booked by\nGautham & co\n\nJoin with Google Meet: https://meet.google.com/foi-zmkn-gpd"
+        );
+        // The raw notes are untouched, so the join link is still found.
+        assert_eq!(
+            e.join_url().as_deref(),
+            Some("https://meet.google.com/foi-zmkn-gpd")
+        );
+    }
+
+    #[test]
+    fn notes_display_is_none_when_nothing_survives() {
+        let e = Event {
+            notes: Some("<div></div>\n-::~:~::~:~::~:~::-\n".into()),
+            ..Event::default()
+        };
+        assert_eq!(e.notes_display(), None);
+    }
+
+    #[test]
     fn attendees_sort_alphabetically_with_you_last() {
-        let mut names = vec![
-            "you".to_string(),
-            "priya".to_string(),
-            "Chetan".to_string(),
-        ];
+        let mut names = vec!["you".to_string(), "priya".to_string(), "Chetan".to_string()];
         sort_attendees(&mut names);
         assert_eq!(names, vec!["Chetan", "priya", "you"]);
     }

@@ -5,13 +5,16 @@ A macOS menu bar calendar, written in Rust with [GPUI](https://www.gpui.rs/).
 The menu bar shows today's date as a plain number. Click it and a popover drops down
 with a month grid (Sunday-start, ISO week numbers, a dot on days that have something on them)
 and the selected day's events, read straight from Calendar.app via EventKit — so whatever is
-synced there, Google Calendar included, shows up. No Dock icon, no window management, and it
-never opens another app unless you ask it to.
+synced there, Google Calendar included, shows up. Click an event and it opens in place, with the
+location, who else is on it, the notes, and a Join button for the Zoom/Meet/Teams link. No Dock
+icon, no window management, and it never opens another app unless you ask it to.
 
-![daybar popover](docs/screenshot.png)
+It follows the system light/dark appearance, and each event wears its own calendar's colour.
 
-<!-- Screenshot placeholder: open the app, click the menu bar item, and save a capture of the
-     popover to docs/screenshot.png. -->
+![daybar popover, with one event expanded in place](docs/screenshot.png)
+
+<!-- Captured from `cargo run --example popover_preview` (stub data, no real meeting links).
+     Crop the window and overwrite docs/screenshot.png. -->
 
 ## Build and run
 
@@ -49,14 +52,27 @@ popover opens.
 | Key | |
 | --- | --- |
 | `←` `→` | previous / next day |
-| `↑` `↓` | previous / next week |
+| `↑` `↓` | previous / next week, or move between event rows once the list has focus |
+| `⇥` | put keyboard focus on the event list |
+| `space` | expand / collapse the focused event |
 | `t` | jump to today |
-| `⏎` | open the selected day in Google Calendar |
-| `esc` | close the popover |
+| `⏎` | expand the focused event, or open the selected day in Google Calendar |
+| `esc` | close the `···` menu, then the expanded event, then the popover |
 
 `‹` `›` page the month grid without moving the selection. Clicking a day selects it and switches
-back to Day mode; the Day/Week toggle swaps the list between one day and the Sun–Sat week around
-the selection.
+back to Day mode; the footer's **Week** button swaps the list between one day and the Sun–Sat week
+around the selection, and **Today** jumps back.
+
+## Event details
+
+Clicking a row (or Enter/Space on the focused one) expands it in place — one at a time, and the
+popover grows and shrinks to fit. It shows the location, the attendees (`Priya, you`), and the
+notes clamped to six lines; invite HTML and Google's `~:~:~` banner lines are stripped first.
+**Join** appears when the event has a URL, or a Zoom / Meet / Teams / Webex link anywhere in its
+url, location or notes. **Open in Google Calendar** opens the day in the browser.
+
+The `···` button in the header holds **Refresh** (refetch now, without closing) and **Quit
+Daybar**. "Launch at login" is a placeholder and does nothing yet.
 
 ## Layout
 

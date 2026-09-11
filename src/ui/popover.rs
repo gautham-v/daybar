@@ -90,6 +90,8 @@ pub struct Popover {
     menu_open: bool,
     /// Colors for the window's current appearance, refreshed each render.
     theme: Theme,
+    /// Redraws the popover when the system flips between light and dark.
+    appearance: Option<gpui::Subscription>,
     provider: EventProvider,
     now: Clock,
     access: AccessProbe,
@@ -108,6 +110,7 @@ impl Popover {
             focused_row: None,
             menu_open: false,
             theme: Theme::default(),
+            appearance: None,
             provider,
             now,
             access: Box::new(|| AccessState::Granted),
@@ -449,6 +452,9 @@ impl Popover {
 
         div()
             .absolute()
+            // Without this the month grid underneath the panel gets the same
+            // click and quietly changes the selected day.
+            .occlude()
             .top(px(HEADER_HEIGHT - 2.0))
             .right(theme::PAD_X)
             .w(px(168.))
@@ -621,7 +627,15 @@ impl Focusable for Popover {
 
 impl Render for Popover {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Follow the system appearance without the views having to ask.
+        // Follow the system appearance without the views having to ask. The
+        // window only repaints when something notifies it, so a light/dark flip
+        // while the popover is up has to wake it explicitly.
+        if self.appearance.is_none() {
+            let this = cx.entity();
+            self.appearance = Some(window.observe_window_appearance(move |_window, cx| {
+                this.update(cx, |_, cx| cx.notify());
+            }));
+        }
         let theme = Theme::for_appearance(window.appearance());
         if theme != self.theme {
             self.theme = theme;
@@ -634,6 +648,19 @@ impl Render for Popover {
             Mode::Week => week_list::render(self, cx).into_any_element(),
         };
         let footer = self.footer(cx);
+        // A transparent backdrop under the menu so a click anywhere else
+        // dismisses it instead of falling through to the grid or the list.
+        let backdrop = self.menu_open.then(|| {
+            div()
+                .id("menu-backdrop")
+                .absolute()
+                .inset_0()
+                .occlude()
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.menu_open = false;
+                    cx.notify();
+                }))
+        });
         let menu = self.menu_open.then(|| self.menu(cx));
 
         div()
@@ -683,6 +710,7 @@ impl Render for Popover {
             .child(self.rule())
             .child(list)
             .child(footer)
+            .children(backdrop)
             .children(menu)
     }
 }

@@ -137,7 +137,10 @@ impl StubSource {
                 end: Self::at(day, 18, 0),
                 all_day: false,
                 calendar_color: Some(GREEN),
-                notes: Some("Demos first, drinks after. Hybrid: https://meet.google.com/xkc-dpvq-mzu".into()),
+                notes: Some(
+                    "Demos first, drinks after. Hybrid: https://meet.google.com/xkc-dpvq-mzu"
+                        .into(),
+                ),
                 url: None,
                 attendees: people(&["you", "Dan", "Sam"]),
             });
