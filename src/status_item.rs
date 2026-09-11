@@ -12,10 +12,12 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
 use objc2::{define_class, msg_send, sel, AnyThread, DefinedClass, MainThreadMarker};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSControl, NSEvent, NSEventMask, NSFont,
-    NSScreen, NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
+    NSApplication, NSApplicationActivationPolicy, NSCellImagePosition, NSControl, NSEvent,
+    NSEventMask, NSScreen, NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
 };
 use objc2_foundation::{NSPoint, NSRect, NSString};
+
+use crate::menu_bar_icon;
 
 /// What the status item tells the app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,8 +85,9 @@ pub struct StatusItem {
 impl StatusItem {
     /// Install the menu bar item. Returns it plus the click channel.
     ///
-    /// `day_number` is today's day-of-month, and it is the entire title: no
-    /// glyph, just the number in the menu bar's own font.
+    /// `day_number` is today's day-of-month. It is not a title: the whole item
+    /// is one template image of a calendar frame with the number drawn inside
+    /// it, so the menu bar tints it like any system glyph.
     pub fn new(
         mtm: MainThreadMarker,
         day_number: u32,
@@ -98,12 +101,9 @@ impl StatusItem {
 
         if let Some(button) = item.button(mtm) {
             unsafe {
-                button.setTitle(&NSString::from_str(&day_number.to_string()));
-                button.setImage(None);
-                // The menu bar's own text metric, so the number matches the
-                // system items next to it rather than the default control font.
-                let font = NSFont::menuBarFontOfSize(0.0);
-                button.setFont(Some(&font));
+                button.setTitle(&NSString::from_str(""));
+                button.setImage(Some(&menu_bar_icon::calendar_image(day_number)));
+                button.setImagePosition(NSCellImagePosition::ImageOnly);
 
                 let control: &NSControl = &button;
                 control.setTarget(Some(&*target));
@@ -123,10 +123,11 @@ impl StatusItem {
         )
     }
 
-    /// Update the day number shown in the menu bar (call when the date rolls over).
+    /// Update the day number shown in the menu bar (call when the date rolls
+    /// over). The glyph is regenerated, since the number is baked into it.
     pub fn set_day_number(&self, mtm: MainThreadMarker, day_number: u32) {
         if let Some(button) = self.item.button(mtm) {
-            button.setTitle(&NSString::from_str(&day_number.to_string()));
+            button.setImage(Some(&menu_bar_icon::calendar_image(day_number)));
         }
     }
 

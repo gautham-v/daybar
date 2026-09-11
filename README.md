@@ -2,7 +2,9 @@
 
 A macOS menu bar calendar, written in Rust with [GPUI](https://www.gpui.rs/).
 
-The menu bar shows today's date as a plain number. Click it and a popover drops down
+The menu bar shows a small calendar glyph with today's date inside it — drawn at runtime as a
+template image, so it tints itself for light and dark like the system glyphs do, and redraws at
+midnight. Click it and a popover drops down
 with a month grid (Sunday-start, ISO week numbers, a dot on days that have something on them)
 and the selected day's events, read straight from Calendar.app via EventKit — so whatever is
 synced there, Google Calendar included, shows up. Click an event and it opens in place, with the
@@ -79,6 +81,7 @@ Daybar**. "Launch at login" is a placeholder and does nothing yet.
 ## Layout
 
 - `src/main.rs` — activation policy, status item, popover window, refresh schedule
+- `src/menu_bar_icon.rs` — the menu bar glyph, drawn with Core Graphics
 - `src/model.rs` — `Event`, the grid and date math, formatting helpers (pure, unit-tested)
 - `src/calendar/` — `CalendarSource` trait, `eventkit.rs`, `store.rs` cache, `stub.rs` for dev
 - `src/ui/` — `popover.rs` root view plus `month_grid`, `day_list`, `week_list`, `theme`

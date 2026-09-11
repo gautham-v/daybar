@@ -13,7 +13,10 @@ and the selected day's events. Built with GPUI (Rust). Never opens another app u
   Font: system (SF Pro), times in monospace (SF Mono). Popover 320px wide, 12px radius.
 
 ## Behavior
-- Menu bar item shows just the day number ("11") in the menu bar font. Click toggles the popover.
+- Menu bar item is a template image: a 20x15pt rounded-rect calendar outline (1.5pt stroke, 3.5pt
+  radius) with today's day number centred inside it in bold 10pt SF, optically centred on the
+  cap height. Drawn at runtime with Core Graphics (`src/menu_bar_icon.rs`) and regenerated at
+  midnight; `isTemplate` so the menu bar tints it in light and dark. No text title. Click toggles the popover.
   Clicking outside or pressing Esc closes it. No Dock icon (accessory activation policy).
 - Popover: header (‹ › arrows, month title, Day/Week toggle), weekday row, 6-row month grid
   (Sunday start, ISO week numbers on the left), a thin rule, then the list, then a footer with
@@ -62,7 +65,7 @@ Reference: `docs/mockup-v2-inline-expand.dc.html` (option A, approved).
   upcoming event today. Past events at 45% opacity. Chevron at the right, rotates 90° when expanded.
 - Footer: left "Fri, Sep 11 · 12:40" (selected date; live clock only when today), right "Today" and
   "Week" text buttons (Week toggles the week list mode as before).
-- Menu bar: day number only (already done).
+- Menu bar: the calendar glyph with the day number inside it (already done).
 
 ### Inline expand (option A)
 - Clicking an event row (or pressing Enter/Space on a keyboard-focused row) expands it in place
