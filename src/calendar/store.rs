@@ -236,6 +236,7 @@ mod tests {
             start,
             end,
             all_day,
+            ..Event::default()
         }
     }
 
@@ -317,6 +318,20 @@ mod tests {
     }
 
     #[test]
+    fn dedupe_ignores_the_v2_detail_fields() {
+        let day = d(2026, 9, 7);
+        let mut plain = ev("a", at(day, 9, 0), at(day, 10, 0), false);
+        plain.title = "Sync".into();
+        let mut rich = plain.clone();
+        rich.id = "b".into();
+        rich.calendar_color = Some((1, 2, 3));
+        rich.notes = Some("agenda".into());
+        rich.attendees = vec!["Priya".into(), "you".into()];
+        let map = group_by_date(vec![plain, rich], day, day);
+        assert_eq!(map[&day].len(), 1);
+    }
+
+    #[test]
     fn identical_events_from_several_calendars_are_deduped() {
         let day = d(2026, 9, 7);
         let holiday = |id: &str| Event {
@@ -326,6 +341,7 @@ mod tests {
             start: at(day, 0, 0),
             end: at(day, 23, 59),
             all_day: true,
+            ..Event::default()
         };
         let mut other = holiday("other");
         other.title = "Labor Day (observed)".into();

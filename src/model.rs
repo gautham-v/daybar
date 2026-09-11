@@ -3,7 +3,7 @@
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
 
 /// A single calendar event, normalized away from any particular source.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Event {
     /// Stable identifier from the source (EventKit identifier, etc.).
     pub id: String,
@@ -12,13 +12,85 @@ pub struct Event {
     pub start: NaiveDateTime,
     pub end: NaiveDateTime,
     pub all_day: bool,
+    /// The owning calendar's colour, as sRGB bytes. `None` when the source has
+    /// no colour or one we cannot convert.
+    pub calendar_color: Option<(u8, u8, u8)>,
+    /// Free-text notes / description, trimmed; `None` when empty.
+    pub notes: Option<String>,
+    /// The event's own URL, if it has one.
+    pub url: Option<String>,
+    /// Attendee display names, the current user rendered as `"you"` and sorted
+    /// last.
+    pub attendees: Vec<String>,
 }
+
+/// Host fragments that mark a URL as a video-meeting link, in match order.
+const MEETING_HOSTS: [&str; 5] = [
+    "zoom.us",
+    "meet.google.com",
+    "teams.microsoft.com",
+    "teams.live.com",
+    "webex.com",
+];
 
 impl Event {
     /// Does this event touch `day` at all?
     pub fn occurs_on(&self, day: NaiveDate) -> bool {
         self.start.date() <= day && day <= self.end.date()
     }
+
+    /// The link the "Join" button should open: the event's own URL when it has
+    /// one, otherwise the first Zoom / Meet / Teams / Webex link found in the
+    /// url, location or notes.
+    pub fn join_url(&self) -> Option<String> {
+        if let Some(url) = self.url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            return Some(url.to_string());
+        }
+        [
+            self.url.as_deref(),
+            self.location.as_deref(),
+            self.notes.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(find_meeting_link)
+    }
+
+    /// `"Chetan, Priya, you"` — the collapsed attendee line, or `None` when
+    /// there are no attendees.
+    pub fn attendee_line(&self) -> Option<String> {
+        if self.attendees.is_empty() {
+            None
+        } else {
+            Some(self.attendees.join(", "))
+        }
+    }
+}
+
+/// Order attendee names for display: everyone else alphabetically (case
+/// insensitive), `"you"` last.
+pub fn sort_attendees(names: &mut [String]) {
+    names.sort_by(|a, b| {
+        let (ay, by) = (is_you(a), is_you(b));
+        ay.cmp(&by)
+            .then_with(|| a.to_lowercase().cmp(&b.to_lowercase()))
+    });
+}
+
+fn is_you(name: &str) -> bool {
+    name.eq_ignore_ascii_case("you")
+}
+
+/// First http(s) URL in `text` whose host looks like a video-meeting service.
+fn find_meeting_link(text: &str) -> Option<String> {
+    text.split(|c: char| c.is_whitespace() || c == '<' || c == '>' || c == '"')
+        .filter(|tok| tok.starts_with("http://") || tok.starts_with("https://"))
+        .map(|tok| tok.trim_end_matches([',', '.', ')', ']', ';']))
+        .find(|tok| {
+            let lower = tok.to_lowercase();
+            MEETING_HOSTS.iter().any(|h| lower.contains(h))
+        })
+        .map(str::to_string)
 }
 
 /// One cell of the month grid.
@@ -291,6 +363,7 @@ mod tests {
             start: d(2026, 9, 11).and_hms_opt(h, 0, 0).unwrap(),
             end: d(2026, 9, 11).and_hms_opt(h + 1, 0, 0).unwrap(),
             all_day,
+            ..Event::default()
         };
         let mut events = vec![
             mk("b", 14, false),
@@ -313,6 +386,7 @@ mod tests {
             start: d(2026, 9, 10).and_hms_opt(8, 0, 0).unwrap(),
             end: d(2026, 9, 12).and_hms_opt(20, 0, 0).unwrap(),
             all_day: false,
+            ..Event::default()
         };
         assert!(e.occurs_on(d(2026, 9, 10)));
         assert!(e.occurs_on(d(2026, 9, 11)));
@@ -376,5 +450,104 @@ mod tests {
             d(2026, 9, 11).and_hms_opt(12, 41, 0).unwrap(),
             now
         ));
+    }
+
+    fn ev_with(url: Option<&str>, location: Option<&str>, notes: Option<&str>) -> Event {
+        Event {
+            url: url.map(str::to_string),
+            location: location.map(str::to_string),
+            notes: notes.map(str::to_string),
+            ..Event::default()
+        }
+    }
+
+    #[test]
+    fn join_url_prefers_the_events_own_url() {
+        let e = ev_with(
+            Some("https://example.com/agenda"),
+            Some("https://zoom.us/j/123"),
+            None,
+        );
+        assert_eq!(e.join_url().as_deref(), Some("https://example.com/agenda"));
+    }
+
+    #[test]
+    fn join_url_finds_zoom_in_location() {
+        let e = ev_with(None, Some("Zoom https://acme.zoom.us/j/98765?pwd=x"), None);
+        assert_eq!(
+            e.join_url().as_deref(),
+            Some("https://acme.zoom.us/j/98765?pwd=x")
+        );
+    }
+
+    #[test]
+    fn join_url_finds_google_meet_in_notes() {
+        let e = ev_with(
+            None,
+            None,
+            Some("Dial in:\nhttps://meet.google.com/abc-defg-hij\nsee you there"),
+        );
+        assert_eq!(
+            e.join_url().as_deref(),
+            Some("https://meet.google.com/abc-defg-hij")
+        );
+    }
+
+    #[test]
+    fn join_url_finds_teams_and_webex() {
+        let teams = ev_with(
+            None,
+            None,
+            Some("Join <https://teams.microsoft.com/l/meetup-join/19%3ameeting>"),
+        );
+        assert_eq!(
+            teams.join_url().as_deref(),
+            Some("https://teams.microsoft.com/l/meetup-join/19%3ameeting")
+        );
+        let webex = ev_with(None, Some("https://acme.webex.com/meet/priya"), None);
+        assert_eq!(
+            webex.join_url().as_deref(),
+            Some("https://acme.webex.com/meet/priya")
+        );
+    }
+
+    #[test]
+    fn join_url_is_none_without_a_meeting_link() {
+        let e = ev_with(None, Some("Room 4 — Kestrel"), Some("bring the deck"));
+        assert_eq!(e.join_url(), None);
+        assert_eq!(Event::default().join_url(), None);
+    }
+
+    #[test]
+    fn join_url_ignores_unrelated_links() {
+        let e = ev_with(None, None, Some("Notes at https://notion.so/x"));
+        assert_eq!(e.join_url(), None);
+    }
+
+    #[test]
+    fn join_url_strips_trailing_punctuation() {
+        let e = ev_with(None, None, Some("Call https://zoom.us/j/42, then debrief."));
+        assert_eq!(e.join_url().as_deref(), Some("https://zoom.us/j/42"));
+    }
+
+    #[test]
+    fn attendees_sort_alphabetically_with_you_last() {
+        let mut names = vec![
+            "you".to_string(),
+            "priya".to_string(),
+            "Chetan".to_string(),
+        ];
+        sort_attendees(&mut names);
+        assert_eq!(names, vec!["Chetan", "priya", "you"]);
+    }
+
+    #[test]
+    fn attendee_line_collapses_names() {
+        let e = Event {
+            attendees: vec!["Chetan".into(), "Priya".into(), "you".into()],
+            ..Event::default()
+        };
+        assert_eq!(e.attendee_line().as_deref(), Some("Chetan, Priya, you"));
+        assert_eq!(Event::default().attendee_line(), None);
     }
 }

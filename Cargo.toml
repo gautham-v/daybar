@@ -12,6 +12,10 @@ anyhow = "1"
 
 objc2 = "0.6"
 
+[dependencies.objc2-core-graphics]
+version = "0.3"
+features = ["CGColor", "CGColorSpace"]
+
 [dependencies.objc2-foundation]
 version = "0.3"
 features = [
@@ -23,6 +27,7 @@ features = [
     "NSObjCRuntime",
     "NSValue",
     "NSError",
+    "NSURL",
     "NSNotification",
     "NSRunLoop",
     "NSThread",
@@ -55,8 +60,10 @@ features = [
     "EKEvent",
     "EKCalendar",
     "EKCalendarItem",
+    "EKParticipant",
     "EKObject",
     "EKTypes",
+    "objc2-core-graphics",
     "block2",
 ]
 

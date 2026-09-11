@@ -18,11 +18,14 @@ use chrono::{Duration, Local, NaiveDate, NaiveDateTime, TimeZone};
 use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::{Bool, NSObjectProtocol};
 use objc2::sel;
-use objc2_event_kit::{EKAuthorizationStatus, EKEntityType, EKEvent, EKEventStore};
+use objc2_core_graphics::{CGColor, CGColorSpace, CGColorSpaceModel};
+use objc2_event_kit::{
+    EKAuthorizationStatus, EKCalendar, EKEntityType, EKEvent, EKEventStore, EKParticipant,
+};
 use objc2_foundation::{NSDate, NSError};
 
 use crate::calendar::{AccessState, CalendarSource};
-use crate::model::Event;
+use crate::model::{sort_attendees, Event};
 
 /// How long we wait for the user to answer the permission prompt before giving
 /// up and reporting `NotDetermined`. The prompt itself is modal to the user,
@@ -224,6 +227,19 @@ unsafe fn map_event(ek: &EKEvent) -> Option<Event> {
         id
     };
 
+    let notes = unsafe { ek.notes() }
+        .map(|s| s.to_string())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let url = unsafe { ek.URL() }
+        .and_then(|u| u.absoluteString())
+        .map(|s| s.to_string())
+        .filter(|s| !s.trim().is_empty());
+    let calendar_color = unsafe { ek.calendar() }
+        .as_deref()
+        .and_then(|cal| unsafe { calendar_rgb(cal) });
+    let attendees = unsafe { read_attendees(ek) };
+
     Some(Event {
         id,
         title: if title.is_empty() {
@@ -235,7 +251,92 @@ unsafe fn map_event(ek: &EKEvent) -> Option<Event> {
         start,
         end,
         all_day,
+        calendar_color,
+        notes,
+        url,
+        attendees,
     })
+}
+
+/// Display names of an event's attendees, the current user as `"you"`, sorted
+/// with `"you"` last. Empty when the event has no attendees (EventKit reports
+/// `nil` for a solo event).
+///
+/// # Safety
+/// Caller must hold a live reference to the event's store.
+unsafe fn read_attendees(ek: &EKEvent) -> Vec<String> {
+    let Some(list) = (unsafe { ek.attendees() }) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = list
+        .iter()
+        .filter_map(|p: Retained<EKParticipant>| unsafe { participant_name(&p) })
+        .collect();
+    names.dedup();
+    sort_attendees(&mut names);
+    names
+}
+
+/// One participant's display name, or `None` when it has neither a name nor a
+/// usable address.
+///
+/// # Safety
+/// Caller must hold a live reference to the participant's event.
+unsafe fn participant_name(p: &EKParticipant) -> Option<String> {
+    if unsafe { p.isCurrentUser() } {
+        return Some("you".to_string());
+    }
+    let name = unsafe { p.name() }
+        .map(|s| s.to_string())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if name.is_some() {
+        return name;
+    }
+    // No display name: fall back to the local part of the mailto: URL.
+    let url = unsafe { p.URL() };
+    let text = url.absoluteString()?.to_string();
+    let address = text.strip_prefix("mailto:").unwrap_or(&text);
+    let local = address.split('@').next().unwrap_or(address).trim();
+    (!local.is_empty()).then(|| local.to_string())
+}
+
+/// A calendar's colour as sRGB bytes.
+///
+/// `CGColor` can come back nil, and its colour space can be monochrome (grey
+/// calendars) or something we do not understand (CMYK, pattern). Only RGB-ish
+/// and monochrome spaces are converted; anything else is `None` so the UI can
+/// fall back to its own accent.
+///
+/// # Safety
+/// Caller must hold a live reference to the calendar's store.
+unsafe fn calendar_rgb(cal: &EKCalendar) -> Option<(u8, u8, u8)> {
+    let color = unsafe { cal.CGColor() }?;
+    let components = CGColor::components(Some(&color));
+    if components.is_null() {
+        return None;
+    }
+    let count = CGColor::number_of_components(Some(&color));
+    if count == 0 {
+        return None;
+    }
+    let space = CGColor::color_space(Some(&color))?;
+    let model = CGColorSpace::model(Some(&space));
+    // SAFETY: `components` points at `count` floats for as long as `color` is
+    // alive, and `color` is retained by this scope.
+    let comps = unsafe { std::slice::from_raw_parts(components, count) };
+    let (r, g, b) = match model {
+        CGColorSpaceModel::RGB if count >= 3 => (comps[0], comps[1], comps[2]),
+        CGColorSpaceModel::Monochrome => (comps[0], comps[0], comps[0]),
+        _ => return None,
+    };
+    Some((to_byte(r), to_byte(g), to_byte(b)))
+}
+
+/// A 0..1 colour component as a byte, clamping anything out of range (extended
+/// -range colour spaces produce negatives and values above 1).
+fn to_byte(v: f64) -> u8 {
+    (v.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
 /// Normalize an event's span into "the days it visibly occupies".
@@ -323,6 +424,16 @@ mod tests {
             assert!(local_midnight(day).is_some(), "no midnight for {day}");
             day += Duration::days(1);
         }
+    }
+
+    #[test]
+    fn color_components_clamp_into_bytes() {
+        assert_eq!(to_byte(0.0), 0);
+        assert_eq!(to_byte(1.0), 255);
+        assert_eq!(to_byte(0.5), 128);
+        assert_eq!(to_byte(-0.3), 0);
+        assert_eq!(to_byte(1.4), 255);
+        assert_eq!(to_byte(f64::NAN), 0);
     }
 
     #[test]

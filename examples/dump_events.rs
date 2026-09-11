@@ -67,6 +67,23 @@ fn main() {
                     format!("  — {where_}")
                 }
             );
+            if let Some((r, g, b)) = e.calendar_color {
+                println!("            color  #{r:02x}{g:02x}{b:02x}");
+            }
+            if let Some(line) = e.attendee_line() {
+                println!("            with   {line}");
+            }
+            if let Some(url) = &e.url {
+                println!("            url    {url}");
+            }
+            if let Some(join) = e.join_url() {
+                println!("            join   {join}");
+            }
+            if let Some(notes) = &e.notes {
+                let one_line = notes.replace('\n', " / ");
+                let clipped: String = one_line.chars().take(100).collect();
+                println!("            notes  {clipped}");
+            }
         }
     }
 }
