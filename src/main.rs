@@ -29,6 +29,9 @@ const REFRESH_EVERY: StdDuration = StdDuration::from_secs(5 * 60);
 const DATE_TICK: StdDuration = StdDuration::from_secs(30);
 /// Keep the popover this far from the screen edges.
 const SCREEN_MARGIN: f32 = 8.0;
+/// A status-item click that lands this soon after the popover closed itself is
+/// the click that closed it; swallow it rather than reopening.
+const TOGGLE_GRACE: StdDuration = StdDuration::from_millis(250);
 
 /// The popover window, when one is open. Shared by the click loop, the
 /// dismissal subscriptions and the resize observer.
@@ -51,10 +54,20 @@ fn main() {
         // and is re-rendered into whatever window is open.
         let popover = {
             let store = store.clone();
-            cx.new(|cx| Popover::with_system_clock(Box::new(move |date| store.events_on(date)), cx))
+            let access = store.clone();
+            let bounds = store.clone();
+            cx.new(|cx| {
+                Popover::with_system_clock(Box::new(move |date| store.events_on(date)), cx)
+                    .with_access(Box::new(move || access.access_state()))
+                    .with_bounds(Box::new(move || bounds.window()))
+            })
         };
 
         let window: WindowSlot = Rc::new(RefCell::new(None));
+        // When the popover closed itself (focus loss). A click on the status
+        // item takes focus away first, so without this the close-then-click
+        // ordering would read as "nothing was open" and reopen immediately.
+        let closed_at: Rc<Cell<Option<std::time::Instant>>> = Rc::new(Cell::new(None));
         // Replaced on every open so the previous window's observer is dropped.
         let activation: Rc<RefCell<Option<Subscription>>> = Rc::new(RefCell::new(None));
 
@@ -145,6 +158,7 @@ fn main() {
             let item = item.clone();
             let store = store.clone();
             let popover = popover.clone();
+            let closed_at = closed_at.clone();
             async move |cx| {
                 while let Some(event) = clicks.next().await {
                     if event == StatusItemEvent::ClickedOutside {
@@ -158,16 +172,36 @@ fn main() {
                     let result = cx.update(|cx| {
                         // A click while the popover is up is a toggle.
                         if close_popover(&window, cx) {
+                            closed_at.set(None);
+                            return;
+                        }
+                        // The panel may have closed itself on focus loss a
+                        // moment ago because of *this* click; don't reopen.
+                        if closed_at
+                            .take()
+                            .is_some_and(|t| t.elapsed() < TOGGLE_GRACE)
+                        {
                             return;
                         }
                         popover.update(cx, |this, cx| this.reset(cx));
                         let height = popover.read(cx).preferred_height();
-                        match open_popover(cx, anchor, height, popover.clone(), &activation) {
+                        match open_popover(
+                            cx,
+                            anchor,
+                            height,
+                            popover.clone(),
+                            &activation,
+                            &window,
+                            &closed_at,
+                        ) {
                             Ok(handle) => *window.borrow_mut() = Some(handle),
                             Err(err) => eprintln!("daybar: could not open popover: {err}"),
                         }
                         // Opening always re-reads the calendar.
-                        refresh_in_background(cx, store.clone(), popover.clone(), true);
+                        // Access was already prompted for at startup; a prompt
+                        // here would block the refresh behind a modal the user
+                        // may ignore.
+                        refresh_in_background(cx, store.clone(), popover.clone(), false);
                     });
                     if result.is_err() {
                         break; // app is shutting down
@@ -215,16 +249,21 @@ fn close_popover(window: &WindowSlot, cx: &mut App) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn open_popover(
     cx: &mut App,
     anchor: Option<ScreenRect>,
     height: Pixels,
     popover: Entity<Popover>,
     activation: &Rc<RefCell<Option<Subscription>>>,
+    window_slot: &WindowSlot,
+    closed_at: &Rc<Cell<Option<std::time::Instant>>>,
 ) -> anyhow::Result<WindowHandle<Popover>> {
     let bounds = popover_bounds(cx, anchor, height);
 
     let activation = activation.clone();
+    let window_slot = window_slot.clone();
+    let closed_at = closed_at.clone();
     let handle = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -254,6 +293,10 @@ fn open_popover(
                     if window.is_window_active() {
                         was_active.set(true);
                     } else if was_active.get() {
+                        // Clear the slot too, or the next status-item click
+                        // finds a dead handle and reopens instead of toggling.
+                        *window_slot.borrow_mut() = None;
+                        closed_at.set(Some(std::time::Instant::now()));
                         window.remove_window();
                     }
                 })

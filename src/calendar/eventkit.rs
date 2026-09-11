@@ -15,7 +15,7 @@ use std::time::Duration as StdDuration;
 
 use block2::RcBlock;
 use chrono::{Duration, Local, NaiveDate, NaiveDateTime, TimeZone};
-use objc2::rc::Retained;
+use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::{Bool, NSObjectProtocol};
 use objc2::sel;
 use objc2_event_kit::{EKAuthorizationStatus, EKEntityType, EKEvent, EKEventStore};
@@ -68,21 +68,23 @@ impl EventKitSource {
             let _ = tx.send(granted.as_bool());
         });
 
-        let modern = self
-            .store
-            .respondsToSelector(sel!(requestFullAccessToEventsWithCompletion:));
-        unsafe {
-            if modern {
-                self.store
-                    .requestFullAccessToEventsWithCompletion(RcBlock::as_ptr(&handler));
-            } else {
-                #[allow(deprecated)]
-                self.store.requestAccessToEntityType_completion(
-                    EKEntityType::Event,
-                    RcBlock::as_ptr(&handler),
-                );
+        autoreleasepool(|_| {
+            let modern = self
+                .store
+                .respondsToSelector(sel!(requestFullAccessToEventsWithCompletion:));
+            unsafe {
+                if modern {
+                    self.store
+                        .requestFullAccessToEventsWithCompletion(RcBlock::as_ptr(&handler));
+                } else {
+                    #[allow(deprecated)]
+                    self.store.requestAccessToEntityType_completion(
+                        EKEntityType::Event,
+                        RcBlock::as_ptr(&handler),
+                    );
+                }
             }
-        }
+        });
 
         self.access = match rx.recv_timeout(ACCESS_TIMEOUT) {
             // Trust the status over the boolean: on a write-only grant the
@@ -125,13 +127,17 @@ impl CalendarSource for EventKitSource {
             return Vec::new();
         };
 
-        unsafe {
+        // EventKit hands back autoreleased objects (the predicate, the event
+        // array, and every string/date read off an event). This runs on a
+        // long-lived background-executor thread with no pool of its own, so
+        // drain one per fetch or the whole event set leaks every 5 minutes.
+        autoreleasepool(|_| unsafe {
             let predicate = self
                 .store
                 .predicateForEventsWithStartDate_endDate_calendars(&start, &end, None);
             let matched = self.store.eventsMatchingPredicate(&predicate);
             matched.iter().filter_map(|ek| map_event(&ek)).collect()
-        }
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -144,6 +150,10 @@ impl CalendarSource for EventKitSource {
 
     fn ensure_access(&mut self) -> AccessState {
         EventKitSource::request_access(self)
+    }
+
+    fn refresh_access(&mut self) -> AccessState {
+        EventKitSource::refresh_access(self)
     }
 }
 
@@ -238,12 +248,17 @@ unsafe fn map_event(ek: &EKEvent) -> Option<Event> {
 pub(crate) fn normalize_span(
     start: NaiveDateTime,
     end: NaiveDateTime,
-    all_day: bool,
+    // Kept in the signature because the caller always has it and the
+    // distinction may matter again if EventKit's end conventions change.
+    _all_day: bool,
 ) -> (NaiveDateTime, NaiveDateTime) {
     if end < start {
         return (start, start);
     }
-    if all_day && end.time() == chrono::NaiveTime::MIN && end.date() > start.date() {
+    // An end at exactly midnight is exclusive whether or not the event is
+    // all-day: a 22:00–00:00 meeting belongs to the day it started on, not to
+    // the next morning's grid cell.
+    if end.time() == chrono::NaiveTime::MIN && end.date() > start.date() {
         return (start, end - Duration::seconds(1));
     }
     (start, end)
@@ -279,6 +294,14 @@ mod tests {
         let (s, e) = normalize_span(dt(2026, 9, 11, 0, 0), dt(2026, 9, 14, 0, 0), true);
         assert_eq!(s.date(), NaiveDate::from_ymd_opt(2026, 9, 11).unwrap());
         assert_eq!(e.date(), NaiveDate::from_ymd_opt(2026, 9, 13).unwrap());
+    }
+
+    #[test]
+    fn timed_event_ending_at_midnight_stays_on_its_start_day() {
+        let (s, e) = normalize_span(dt(2026, 9, 11, 22, 0), dt(2026, 9, 12, 0, 0), false);
+        assert_eq!(s.date(), NaiveDate::from_ymd_opt(2026, 9, 11).unwrap());
+        assert_eq!(e.date(), NaiveDate::from_ymd_opt(2026, 9, 11).unwrap());
+        assert_eq!(e, dt(2026, 9, 11, 23, 59) + Duration::seconds(59));
     }
 
     #[test]

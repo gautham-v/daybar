@@ -83,4 +83,11 @@ pub trait CalendarSource {
     fn ensure_access(&mut self) -> AccessState {
         self.access_state()
     }
+
+    /// Re-read the permission state from the system, in case the user changed
+    /// it in System Settings while the app was running. Called before every
+    /// refresh; sources that need no permission just report what they have.
+    fn refresh_access(&mut self) -> AccessState {
+        self.access_state()
+    }
 }

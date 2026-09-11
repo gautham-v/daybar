@@ -25,8 +25,7 @@ pub fn window_around(today: NaiveDate) -> (NaiveDate, NaiveDate) {
     )
 }
 
-struct Inner {
-    source: Box<dyn CalendarSource + Send>,
+struct Cache {
     by_date: BTreeMap<NaiveDate, Vec<Event>>,
     window: (NaiveDate, NaiveDate),
     access: AccessState,
@@ -36,9 +35,16 @@ struct Inner {
 }
 
 /// A shared, cached view of the calendar.
+///
+/// The source and the cache sit behind *separate* mutexes on purpose: fetching
+/// (and, on first run, the calendar-access prompt) can block for many seconds,
+/// and the UI reads the cache on the main thread on every render. Only the
+/// source lock is held across the slow calls; the cache lock is taken for the
+/// swap at the end.
 #[derive(Clone)]
 pub struct CalendarStore {
-    inner: Arc<Mutex<Inner>>,
+    source: Arc<Mutex<Box<dyn CalendarSource + Send>>>,
+    cache: Arc<Mutex<Cache>>,
 }
 
 impl CalendarStore {
@@ -47,8 +53,8 @@ impl CalendarStore {
         let today = Local::now().date_naive();
         let access = source.access_state();
         Self {
-            inner: Arc::new(Mutex::new(Inner {
-                source,
+            source: Arc::new(Mutex::new(source)),
+            cache: Arc::new(Mutex::new(Cache {
                 by_date: BTreeMap::new(),
                 window: window_around(today),
                 access,
@@ -59,10 +65,15 @@ impl CalendarStore {
 
     /// Prompt for calendar access if the source needs it, then record the
     /// resulting state. Blocks; call it from a background thread.
+    ///
+    /// Holds only the source lock while the system prompt is up, so the UI can
+    /// keep rendering from the cache meanwhile.
     pub fn request_access(&self) -> AccessState {
-        let mut inner = self.lock();
-        let access = inner.source.ensure_access();
-        inner.access = access;
+        let access = {
+            let mut source = self.lock_source();
+            source.ensure_access()
+        };
+        self.lock().access = access;
         access
     }
 
@@ -74,12 +85,25 @@ impl CalendarStore {
     /// Refetch the window around an explicit "today" (testable seam).
     pub fn refresh_as_of(&self, today: NaiveDate) {
         let (from, to) = window_around(today);
-        let mut inner = self.lock();
-        let events = inner.source.events_between(from, to);
-        inner.access = inner.source.access_state();
-        inner.by_date = group_by_date(events, from, to);
-        inner.window = (from, to);
-        inner.generation += 1;
+        // Fetch with only the source locked: EventKit can take hundreds of ms
+        // and the main thread reads the cache on every frame.
+        let (events, access) = {
+            let mut source = self.lock_source();
+            // The user can flip the permission in System Settings while we run.
+            let access = source.refresh_access();
+            let events = if access.can_read() {
+                source.events_between(from, to)
+            } else {
+                Vec::new()
+            };
+            (events, access)
+        };
+        let by_date = group_by_date(events, from, to);
+        let mut cache = self.lock();
+        cache.access = access;
+        cache.by_date = by_date;
+        cache.window = (from, to);
+        cache.generation += 1;
     }
 
     /// The events for one day, all-day first then by start time.
@@ -118,7 +142,7 @@ impl CalendarStore {
     }
 
     pub fn source_name(&self) -> &'static str {
-        self.lock().source.name()
+        self.lock_source().name()
     }
 
     /// The cached `[from, to]` window.
@@ -140,10 +164,14 @@ impl CalendarStore {
         self.len() == 0
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Cache> {
         // A panic inside the store would leave the cache stale but valid, so
         // keep using it rather than poisoning the whole app.
-        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+        self.cache.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn lock_source(&self) -> std::sync::MutexGuard<'_, Box<dyn CalendarSource + Send>> {
+        self.source.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -334,6 +362,59 @@ mod tests {
         let (from, to) = window_around(d(2026, 9, 11));
         assert_eq!(from, d(2026, 7, 13));
         assert_eq!(to, d(2026, 12, 10));
+    }
+
+    #[test]
+    fn refresh_picks_up_access_granted_after_construction() {
+        // A source that starts denied and is granted in System Settings later.
+        struct Flipping {
+            access: AccessState,
+        }
+        impl CalendarSource for Flipping {
+            fn events_between(&self, from: NaiveDate, _: NaiveDate) -> Vec<Event> {
+                vec![ev("granted", at(from, 9, 0), at(from, 10, 0), false)]
+            }
+            fn access_state(&self) -> AccessState {
+                self.access
+            }
+            fn refresh_access(&mut self) -> AccessState {
+                self.access = AccessState::Granted;
+                self.access
+            }
+        }
+        let store = CalendarStore::new(Box::new(Flipping {
+            access: AccessState::Denied,
+        }));
+        assert_eq!(store.access_state(), AccessState::Denied);
+        store.refresh_as_of(d(2026, 9, 11));
+        assert_eq!(store.access_state(), AccessState::Granted);
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn the_cache_stays_readable_while_a_slow_fetch_is_in_flight() {
+        use std::sync::mpsc;
+        struct Blocking {
+            gate: Mutex<mpsc::Receiver<()>>,
+        }
+        impl CalendarSource for Blocking {
+            fn events_between(&self, _: NaiveDate, _: NaiveDate) -> Vec<Event> {
+                let _ = self.gate.lock().unwrap().recv();
+                Vec::new()
+            }
+        }
+        let (tx, rx) = mpsc::channel();
+        let store = CalendarStore::new(Box::new(Blocking {
+            gate: Mutex::new(rx),
+        }));
+        let worker = store.clone();
+        let handle = std::thread::spawn(move || worker.refresh_as_of(d(2026, 9, 11)));
+        // Would deadlock until the fetch finishes if one mutex covered both.
+        assert!(store.events_on(d(2026, 9, 11)).is_empty());
+        assert_eq!(store.generation(), 0);
+        tx.send(()).unwrap();
+        handle.join().unwrap();
+        assert_eq!(store.generation(), 1);
     }
 
     #[test]

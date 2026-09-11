@@ -12,6 +12,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window,
 };
 
+use crate::calendar::AccessState;
 use crate::model::{self, Event};
 use crate::ui::{day_list, month_grid, theme, week_list};
 
@@ -36,6 +37,14 @@ pub type EventProvider = Box<dyn Fn(NaiveDate) -> Vec<Event>>;
 
 /// Clock, injectable so previews and tests can pin "now".
 pub type Clock = Box<dyn Fn() -> NaiveDateTime>;
+
+/// Reports the data source's permission state, so an empty list can explain
+/// itself instead of reading as a free day.
+pub type AccessProbe = Box<dyn Fn() -> AccessState>;
+
+/// Reports the inclusive `[from, to]` range the provider actually has data for.
+/// Navigation is clamped to it — past the edge every day would look empty.
+pub type WindowProbe = Box<dyn Fn() -> (NaiveDate, NaiveDate)>;
 
 actions!(
     daybar,
@@ -68,6 +77,8 @@ pub struct Popover {
     mode: Mode,
     provider: EventProvider,
     now: Clock,
+    access: AccessProbe,
+    bounds: Option<WindowProbe>,
 }
 
 impl Popover {
@@ -80,7 +91,31 @@ impl Popover {
             mode: Mode::Day,
             provider,
             now,
+            access: Box::new(|| AccessState::Granted),
+            bounds: None,
         }
+    }
+
+    /// Tell the view how to read the source's permission state.
+    pub fn with_access(mut self, access: AccessProbe) -> Self {
+        self.access = access;
+        self
+    }
+
+    /// Confine navigation to the range the provider can answer for.
+    pub fn with_bounds(mut self, bounds: WindowProbe) -> Self {
+        self.bounds = bounds.into();
+        self
+    }
+
+    /// The source's current permission state.
+    pub fn access(&self) -> AccessState {
+        (self.access)()
+    }
+
+    /// Clamp a date into the provider's window, if one was supplied.
+    fn clamp(&self, date: NaiveDate) -> NaiveDate {
+        clamp_to(date, self.bounds.as_ref().map(|b| b()))
     }
 
     /// Convenience for the common case: system clock.
@@ -121,6 +156,7 @@ impl Popover {
     }
 
     pub fn select(&mut self, date: NaiveDate, cx: &mut Context<Self>) {
+        let date = self.clamp(date);
         self.selected = date;
         self.visible_month = date;
         cx.notify();
@@ -138,19 +174,9 @@ impl Popover {
     }
 
     fn step_month(&mut self, months: i64, cx: &mut Context<Self>) {
-        // Clamp the day so stepping from the 31st never falls off a short month.
-        let (mut y, mut m) = (self.visible_month.year(), self.visible_month.month() as i64);
-        m += months;
-        while m < 1 {
-            m += 12;
-            y -= 1;
-        }
-        while m > 12 {
-            m -= 12;
-            y += 1;
-        }
-        self.visible_month = NaiveDate::from_ymd_opt(y, m as u32, 1)
-            .expect("first of a normalized month is always valid");
+        // Clamping to the window can land mid-month; the grid only needs *some*
+        // day in the month it should draw.
+        self.visible_month = self.clamp(month_start(self.visible_month, months));
         cx.notify();
     }
 
@@ -184,7 +210,7 @@ impl Popover {
     /// Height the list wants, before the `LIST_MIN_HEIGHT` floor.
     fn list_height(&self) -> f32 {
         let inner = match self.mode {
-            Mode::Day => day_list::content_height(&self.events_on(self.selected)),
+            Mode::Day => day_list::content_height(&self.events_on(self.selected), self.access()),
             Mode::Week => week_list::content_height(
                 &model::week_containing(self.selected).map(|d| self.events_on(d).len()),
             ),
@@ -338,6 +364,29 @@ impl Popover {
     }
 }
 
+/// Clamp `date` into `bounds` (inclusive), or leave it alone when unbounded.
+fn clamp_to(date: NaiveDate, bounds: Option<(NaiveDate, NaiveDate)>) -> NaiveDate {
+    match bounds {
+        Some((from, to)) => date.clamp(from.min(to), to.max(from)),
+        None => date,
+    }
+}
+
+/// The first of the month `months` away from `from`.
+fn month_start(from: NaiveDate, months: i64) -> NaiveDate {
+    let (mut y, mut m) = (from.year(), from.month() as i64);
+    m += months;
+    while m < 1 {
+        m += 12;
+        y -= 1;
+    }
+    while m > 12 {
+        m -= 12;
+        y += 1;
+    }
+    NaiveDate::from_ymd_opt(y, m as u32, 1).expect("first of a normalized month is always valid")
+}
+
 fn arrow_button(
     id: &'static str,
     glyph: &'static str,
@@ -435,6 +484,50 @@ pub type PopoverEntity = Entity<Popover>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn d(y: i32, m: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, day).unwrap()
+    }
+
+    const WINDOW: (NaiveDate, NaiveDate) = (
+        match NaiveDate::from_ymd_opt(2026, 7, 13) {
+            Some(d) => d,
+            None => panic!(),
+        },
+        match NaiveDate::from_ymd_opt(2026, 12, 10) {
+            Some(d) => d,
+            None => panic!(),
+        },
+    );
+
+    #[test]
+    fn navigation_saturates_at_the_data_window() {
+        assert_eq!(clamp_to(d(2027, 5, 1), Some(WINDOW)), WINDOW.1);
+        assert_eq!(clamp_to(d(2020, 1, 1), Some(WINDOW)), WINDOW.0);
+        assert_eq!(clamp_to(d(2026, 9, 11), Some(WINDOW)), d(2026, 9, 11));
+    }
+
+    #[test]
+    fn unbounded_navigation_is_left_alone() {
+        assert_eq!(clamp_to(d(2099, 1, 1), None), d(2099, 1, 1));
+    }
+
+    #[test]
+    fn month_paging_normalizes_across_year_boundaries() {
+        assert_eq!(month_start(d(2026, 12, 31), 1), d(2027, 1, 1));
+        assert_eq!(month_start(d(2026, 1, 31), -1), d(2025, 12, 1));
+        assert_eq!(month_start(d(2026, 9, 11), 0), d(2026, 9, 1));
+    }
+
+    #[test]
+    fn month_paging_past_the_window_pins_to_its_edge() {
+        // Four clicks of › from September would be January 2027.
+        let mut month = d(2026, 9, 1);
+        for _ in 0..4 {
+            month = clamp_to(month_start(month, 1), Some(WINDOW));
+        }
+        assert_eq!(month, WINDOW.1);
+    }
 
     #[test]
     fn chrome_constants_match_the_mockup() {

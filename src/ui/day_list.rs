@@ -5,6 +5,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{div, px, FontWeight, IntoElement, ParentElement, Styled};
 
+use crate::calendar::AccessState;
 use crate::model::{self, Event};
 
 use crate::ui::popover::{Popover, LIST_PAD_BOTTOM, LIST_PAD_TOP};
@@ -15,12 +16,22 @@ const ROW_PAD: f32 = 8.0;
 const TITLE_LINE: f32 = 17.0;
 const LOCATION_LINE: f32 = 17.0;
 const HEADER_ROW: f32 = 4.0 + 17.0 + 8.0;
-const EMPTY_BLOCK: f32 = 24.0 + 16.0 + 24.0;
+const EMPTY_LINE: f32 = 16.0;
+const EMPTY_BLOCK: f32 = 24.0 + EMPTY_LINE + 24.0;
+/// Roughly how many characters of `TEXT_SMALL` fit across the list.
+const EMPTY_CHARS_PER_LINE: usize = 46;
+
+/// The line shown when a day has no events — either "nothing scheduled" or the
+/// reason we cannot see the calendar at all.
+pub fn empty_notice(access: AccessState) -> &'static str {
+    access.message().unwrap_or("nothing scheduled")
+}
 
 /// How tall the day list's content is, so the window can size to it.
-pub fn content_height(events: &[Event]) -> f32 {
+pub fn content_height(events: &[Event], access: AccessState) -> f32 {
     let body = if events.is_empty() {
-        EMPTY_BLOCK
+        let lines = empty_notice(access).len().div_ceil(EMPTY_CHARS_PER_LINE);
+        EMPTY_BLOCK + (lines.saturating_sub(1) as f32) * EMPTY_LINE
     } else {
         events
             .iter()
@@ -55,6 +66,8 @@ pub fn render(state: &Popover) -> impl IntoElement {
     let today = now.date();
     let is_today = date == today;
     let events = state.events_on(date);
+    // An empty list means two very different things; say which.
+    let notice = empty_notice(state.access());
 
     let next = next_up(&events, now, is_today);
     let remaining = events
@@ -101,7 +114,7 @@ pub fn render(state: &Popover) -> impl IntoElement {
                     .italic()
                     .text_size(theme::TEXT_SMALL)
                     .text_color(theme::FAINT)
-                    .child("nothing scheduled"),
+                    .child(notice),
             )
         })
         .children(events.into_iter().enumerate().map(move |(i, event)| {
@@ -179,12 +192,24 @@ mod tests {
 
     #[test]
     fn empty_day_still_has_height() {
-        assert!(content_height(&[]) > 0.0);
+        assert!(content_height(&[], AccessState::Granted) > 0.0);
     }
 
     #[test]
     fn more_events_are_taller() {
-        assert!(content_height(&[ev(9, false), ev(11, false)]) > content_height(&[ev(9, false)]));
+        assert!(
+            content_height(&[ev(9, false), ev(11, false)], AccessState::Granted)
+                > content_height(&[ev(9, false)], AccessState::Granted)
+        );
+    }
+
+    #[test]
+    fn a_denied_day_explains_itself_and_gets_more_room() {
+        assert_eq!(empty_notice(AccessState::Granted), "nothing scheduled");
+        assert!(empty_notice(AccessState::Denied).contains("System Settings"));
+        assert!(
+            content_height(&[], AccessState::Denied) > content_height(&[], AccessState::Granted)
+        );
     }
 
     #[test]
