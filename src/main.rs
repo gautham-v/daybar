@@ -177,10 +177,7 @@ fn main() {
                         }
                         // The panel may have closed itself on focus loss a
                         // moment ago because of *this* click; don't reopen.
-                        if closed_at
-                            .take()
-                            .is_some_and(|t| t.elapsed() < TOGGLE_GRACE)
-                        {
+                        if closed_at.take().is_some_and(|t| t.elapsed() < TOGGLE_GRACE) {
                             return;
                         }
                         popover.update(cx, |this, cx| this.reset(cx));

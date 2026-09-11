@@ -13,7 +13,7 @@ and the selected day's events. Built with GPUI (Rust). Never opens another app u
   Font: system (SF Pro), times in monospace (SF Mono). Popover 320px wide, 12px radius.
 
 ## Behavior
-- Menu bar item shows a small calendar glyph + day number ("11"). Click toggles the popover.
+- Menu bar item shows just the day number ("11") in the menu bar font. Click toggles the popover.
   Clicking outside or pressing Esc closes it. No Dock icon (accessory activation policy).
 - Popover: header (‹ › arrows, month title, Day/Week toggle), weekday row, 6-row month grid
   (Sunday start, ISO week numbers on the left), a thin rule, then the list, then a footer with

@@ -12,10 +12,10 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
 use objc2::{define_class, msg_send, sel, AnyThread, DefinedClass, MainThreadMarker};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSCellImagePosition, NSControl, NSEvent,
-    NSEventMask, NSImage, NSScreen, NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
+    NSApplication, NSApplicationActivationPolicy, NSControl, NSEvent, NSEventMask, NSFont,
+    NSScreen, NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
 };
-use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{NSPoint, NSRect, NSString};
 
 /// What the status item tells the app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,7 +83,8 @@ pub struct StatusItem {
 impl StatusItem {
     /// Install the menu bar item. Returns it plus the click channel.
     ///
-    /// `day_number` is today's day-of-month, rendered next to the glyph.
+    /// `day_number` is today's day-of-month, and it is the entire title: no
+    /// glyph, just the number in the menu bar's own font.
     pub fn new(
         mtm: MainThreadMarker,
         day_number: u32,
@@ -98,18 +99,11 @@ impl StatusItem {
         if let Some(button) = item.button(mtm) {
             unsafe {
                 button.setTitle(&NSString::from_str(&day_number.to_string()));
-
-                // A template SF Symbol tints itself for light/dark menu bars.
-                let name = NSString::from_str("calendar");
-                let desc = NSString::from_str("Calendar");
-                if let Some(image) =
-                    NSImage::imageWithSystemSymbolName_accessibilityDescription(&name, Some(&desc))
-                {
-                    image.setTemplate(true);
-                    image.setSize(NSSize::new(14.0, 14.0));
-                    button.setImage(Some(&image));
-                    button.setImagePosition(NSCellImagePosition::ImageLeft);
-                }
+                button.setImage(None);
+                // The menu bar's own text metric, so the number matches the
+                // system items next to it rather than the default control font.
+                let font = NSFont::menuBarFontOfSize(0.0);
+                button.setFont(Some(&font));
 
                 let control: &NSControl = &button;
                 control.setTarget(Some(&*target));

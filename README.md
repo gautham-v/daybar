@@ -2,7 +2,7 @@
 
 A macOS menu bar calendar, written in Rust with [GPUI](https://www.gpui.rs/).
 
-The menu bar shows a small calendar glyph and today's date. Click it and a popover drops down
+The menu bar shows today's date as a plain number. Click it and a popover drops down
 with a month grid (Sunday-start, ISO week numbers, a dot on days that have something on them)
 and the selected day's events, read straight from Calendar.app via EventKit — so whatever is
 synced there, Google Calendar included, shows up. No Dock icon, no window management, and it
