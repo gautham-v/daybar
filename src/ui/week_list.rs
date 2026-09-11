@@ -34,6 +34,7 @@ pub fn content_height(counts: &[usize; 7]) -> f32 {
 }
 
 pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
+    let theme = state.theme();
     let today = state.today();
     let selected = state.selected();
     let week = model::week_containing(selected);
@@ -44,17 +45,16 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
         .px(theme::PAD_X)
         .pt(px(LIST_PAD_TOP))
         .pb(px(LIST_PAD_BOTTOM))
-        .min_h(theme::LIST_MIN_HEIGHT)
         .children(week.into_iter().map(|date| {
             let events = state.events_on(date);
             let is_today = date == today;
             let is_selected = date == selected;
             let label_color = if is_today {
-                theme::ACCENT
+                theme.accent
             } else if is_selected {
-                theme::TEXT
+                theme.text
             } else {
-                theme::MUTED
+                theme.secondary
             };
 
             div()
@@ -64,9 +64,9 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
                 .gap(px(12.))
                 .py(px(ROW_PAD))
                 .border_b_1()
-                .border_color(theme::ROW_RULE)
+                .border_color(theme.separator)
                 .cursor_pointer()
-                .hover(|s| s.bg(theme::HOVER))
+                .hover(|s| s.bg(theme.hover))
                 .on_click(cx.listener(move |this, _, _, cx| this.pick(date, cx)))
                 .child(
                     div()
@@ -103,7 +103,7 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
                                 div()
                                     .pt(px(2.))
                                     .text_size(theme::TEXT_SMALL)
-                                    .text_color(theme::PLACEHOLDER)
+                                    .text_color(theme.placeholder)
                                     .child("–"),
                             )
                         })
@@ -123,8 +123,7 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
                                     div()
                                         .w(px(38.))
                                         .flex_shrink_0()
-                                        .font_family(theme::MONO_FAMILY)
-                                        .text_color(theme::MUTED)
+                                        .text_color(theme.secondary)
                                         .child(time),
                                 )
                                 .child(

@@ -1,8 +1,9 @@
-//! Root popover view: header (month title, ‹ ›, Day/Week toggle), weekday row,
-//! month grid, rule, the day or week list, and the footer band.
+//! Root popover view: header (‹ › chevrons, centered month title, "···" menu),
+//! weekday row, month grid, rule, the day or week list, and the footer.
 //!
-//! Owns the selected date, the Day/Week mode, the event provider and the clock,
-//! and handles the key bindings (← → ↑ ↓, Enter, `t`, Esc).
+//! Owns the selected date, the Day/Week mode, which event row is expanded and
+//! which is keyboard-focused, the event provider and the clock, and the key
+//! bindings (← → ↑ ↓, Enter, Space, `t`, Esc).
 
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime};
 use gpui::prelude::FluentBuilder;
@@ -14,12 +15,15 @@ use gpui::{
 
 use crate::calendar::AccessState;
 use crate::model::{self, Event};
+use crate::ui::theme::Theme;
 use crate::ui::{day_list, month_grid, theme, week_list};
 
 /// Events the popover raises to whoever owns its window.
 pub enum PopoverEvent {
     /// Esc (or any other dismissal the view decides on) — close the window.
     Close,
+    /// The "···" menu's Refresh item — refetch the calendar now.
+    Refresh,
 }
 
 /// Which list is shown under the grid.
@@ -48,7 +52,7 @@ pub type WindowProbe = Box<dyn Fn() -> (NaiveDate, NaiveDate)>;
 
 actions!(
     daybar,
-    [PrevDay, NextDay, PrevWeek, NextWeek, GoToday, OpenDay, Dismiss]
+    [PrevDay, NextDay, PrevWeek, NextWeek, GoToday, OpenDay, FocusList, ToggleRow, Dismiss]
 );
 
 /// Key context the popover's bindings are scoped to.
@@ -61,6 +65,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("right", NextDay, Some(KEY_CONTEXT)),
         KeyBinding::new("up", PrevWeek, Some(KEY_CONTEXT)),
         KeyBinding::new("down", NextWeek, Some(KEY_CONTEXT)),
+        KeyBinding::new("tab", FocusList, Some(KEY_CONTEXT)),
+        KeyBinding::new("space", ToggleRow, Some(KEY_CONTEXT)),
         KeyBinding::new("t", GoToday, Some(KEY_CONTEXT)),
         KeyBinding::new("enter", OpenDay, Some(KEY_CONTEXT)),
         KeyBinding::new("escape", Dismiss, Some(KEY_CONTEXT)),
@@ -75,6 +81,15 @@ pub struct Popover {
     /// while the user is paging around with the arrows.
     visible_month: NaiveDate,
     mode: Mode,
+    /// Id of the one expanded event row, if any.
+    expanded: Option<String>,
+    /// Index of the keyboard-focused row within the day list, if the list has
+    /// keyboard focus at all.
+    focused_row: Option<usize>,
+    /// Whether the "···" menu is showing.
+    menu_open: bool,
+    /// Colors for the window's current appearance, refreshed each render.
+    theme: Theme,
     provider: EventProvider,
     now: Clock,
     access: AccessProbe,
@@ -89,6 +104,10 @@ impl Popover {
             selected: today,
             visible_month: today,
             mode: Mode::Day,
+            expanded: None,
+            focused_row: None,
+            menu_open: false,
+            theme: Theme::default(),
             provider,
             now,
             access: Box::new(|| AccessState::Granted),
@@ -143,6 +162,25 @@ impl Popover {
         self.mode
     }
 
+    /// Colors for the window's appearance.
+    pub fn theme(&self) -> Theme {
+        self.theme
+    }
+
+    /// Id of the expanded row, if any.
+    pub fn expanded(&self) -> Option<&str> {
+        self.expanded.as_deref()
+    }
+
+    /// Index of the keyboard-focused row, if the list holds focus.
+    pub fn focused_row(&self) -> Option<usize> {
+        self.focused_row
+    }
+
+    pub(crate) fn menu_open(&self) -> bool {
+        self.menu_open
+    }
+
     /// Events for `date`, sorted the way the lists want them.
     pub fn events_on(&self, date: NaiveDate) -> Vec<Event> {
         let mut events = (self.provider)(date);
@@ -159,13 +197,108 @@ impl Popover {
         let date = self.clamp(date);
         self.selected = date;
         self.visible_month = date;
+        // A different day is a different list; nothing stays open or focused.
+        self.expanded = None;
+        self.focused_row = None;
         cx.notify();
     }
 
     /// Clicking a cell selects it *and* drops back to Day mode, per the spec.
     pub(crate) fn pick(&mut self, date: NaiveDate, cx: &mut Context<Self>) {
         self.mode = Mode::Day;
+        self.menu_open = false;
         self.select(date, cx);
+    }
+
+    // ── Row state ────────────────────────────────────────────────────────────
+
+    /// Click (or Enter/Space) on row `index`: focus it and toggle its details.
+    pub(crate) fn toggle_row(&mut self, index: usize, id: &str, cx: &mut Context<Self>) {
+        self.focused_row = Some(index);
+        self.expanded = if self.expanded.as_deref() == Some(id) {
+            None
+        } else {
+            Some(id.to_string())
+        };
+        self.menu_open = false;
+        cx.notify();
+    }
+
+    /// Number of rows the day list currently has.
+    fn row_count(&self) -> usize {
+        match self.mode {
+            Mode::Day => self.events_on(self.selected).len(),
+            Mode::Week => 0,
+        }
+    }
+
+    /// Toggle the focused row, entering the list at the first row when nothing
+    /// is focused yet. Returns false when there is no list to enter.
+    fn toggle_focused_row(&mut self, cx: &mut Context<Self>) -> bool {
+        let count = self.row_count();
+        if count == 0 {
+            return false;
+        }
+        let index = self.focused_row.unwrap_or(0).min(count - 1);
+        let Some(id) = self
+            .events_on(self.selected)
+            .get(index)
+            .map(|e| e.id.clone())
+        else {
+            return false;
+        };
+        self.toggle_row(index, &id, cx);
+        true
+    }
+
+    /// Tab: put keyboard focus on the list without disclosing anything, then
+    /// step through the rows.
+    fn focus_list(&mut self, cx: &mut Context<Self>) {
+        let count = self.row_count();
+        if count == 0 {
+            return;
+        }
+        self.focused_row = Some(match self.focused_row {
+            Some(i) => (i + 1) % count,
+            None => 0,
+        });
+        cx.notify();
+    }
+
+    /// ↑/↓ inside the list. Returns false when focus is not in the list, so the
+    /// caller can fall back to moving a week.
+    fn move_row(&mut self, delta: isize, cx: &mut Context<Self>) -> bool {
+        let count = self.row_count();
+        let Some(current) = self.focused_row else {
+            return false;
+        };
+        if count == 0 {
+            self.focused_row = None;
+            return false;
+        }
+        let next = (current as isize + delta).clamp(0, count as isize - 1) as usize;
+        self.focused_row = Some(next);
+        // Keep the disclosure with the focus: an open row follows the cursor.
+        if self.expanded.is_some() {
+            if let Some(event) = self.events_on(self.selected).get(next) {
+                self.expanded = Some(event.id.clone());
+            }
+        }
+        cx.notify();
+        true
+    }
+
+    /// Esc: collapse an expanded row first, then close the popover.
+    fn dismiss(&mut self, cx: &mut Context<Self>) {
+        if self.menu_open {
+            self.menu_open = false;
+            cx.notify();
+        } else if self.expanded.is_some() {
+            self.expanded = None;
+            cx.notify();
+        } else {
+            cx.emit(PopoverEvent::Close);
+        }
     }
 
     fn shift(&mut self, days: i64, cx: &mut Context<Self>) {
@@ -177,11 +310,28 @@ impl Popover {
         // Clamping to the window can land mid-month; the grid only needs *some*
         // day in the month it should draw.
         self.visible_month = self.clamp(month_start(self.visible_month, months));
+        self.menu_open = false;
         cx.notify();
     }
 
     fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
         self.mode = mode;
+        self.expanded = None;
+        self.focused_row = None;
+        self.menu_open = false;
+        cx.notify();
+    }
+
+    fn toggle_week_mode(&mut self, cx: &mut Context<Self>) {
+        let next = match self.mode {
+            Mode::Day => Mode::Week,
+            Mode::Week => Mode::Day,
+        };
+        self.set_mode(next, cx);
+    }
+
+    fn toggle_menu(&mut self, cx: &mut Context<Self>) {
+        self.menu_open = !self.menu_open;
         cx.notify();
     }
 
@@ -193,6 +343,7 @@ impl Popover {
     fn go_today(&mut self, cx: &mut Context<Self>) {
         let today = self.today();
         self.mode = Mode::Day;
+        self.menu_open = false;
         self.select(today, cx);
     }
 
@@ -207,16 +358,19 @@ impl Popover {
         HEADER_HEIGHT + WEEKDAY_ROW_HEIGHT + grid_height() + 1.0 + FOOTER_HEIGHT
     }
 
-    /// Height the list wants, before the `LIST_MIN_HEIGHT` floor.
+    /// Height the list wants, expanded row included.
     fn list_height(&self) -> f32 {
         let inner = match self.mode {
-            Mode::Day => day_list::content_height(&self.events_on(self.selected), self.access()),
+            Mode::Day => day_list::content_height(
+                &self.events_on(self.selected),
+                self.access(),
+                self.expanded.as_deref(),
+            ),
             Mode::Week => week_list::content_height(
                 &model::week_containing(self.selected).map(|d| self.events_on(d).len()),
             ),
         };
-        let min: f32 = theme::LIST_MIN_HEIGHT.into();
-        (inner + LIST_PAD_TOP + LIST_PAD_BOTTOM).max(min)
+        inner + LIST_PAD_TOP + LIST_PAD_BOTTOM
     }
 
     /// Height the window should be given for the current content.
@@ -227,13 +381,14 @@ impl Popover {
     // ── Pieces ───────────────────────────────────────────────────────────────
 
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
         div()
             .flex()
             .flex_row()
             .items_center()
             .justify_between()
             .pt(px(12.))
-            .pb(px(8.))
+            .pb(px(6.))
             .px(theme::PAD_X)
             .child(
                 div()
@@ -241,54 +396,80 @@ impl Popover {
                     .flex_row()
                     .items_center()
                     .gap(px(2.))
-                    .child(arrow_button(
+                    .child(icon_button(
                         "prev",
                         "‹",
+                        theme,
                         cx.listener(|this, _, _, cx| this.step_month(-1, cx)),
                     ))
-                    .child(arrow_button(
+                    .child(icon_button(
                         "next",
                         "›",
+                        theme,
                         cx.listener(|this, _, _, cx| this.step_month(1, cx)),
-                    ))
-                    .child(
-                        div()
-                            .ml(px(6.))
-                            .text_size(theme::TEXT_TITLE)
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::TEXT)
-                            .child(model::month_title(self.visible_month)),
-                    ),
+                    )),
             )
-            .child(self.mode_toggle(cx))
+            .child(
+                div()
+                    .text_size(theme::TEXT_TITLE)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.text)
+                    .child(model::month_title(self.visible_month)),
+            )
+            .child(icon_button(
+                "more",
+                "···",
+                theme,
+                cx.listener(|this, _, _, cx| this.toggle_menu(cx)),
+            ))
     }
 
-    fn mode_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let segment = |label: &'static str, mode: Mode, active: bool, cx: &mut Context<Self>| {
+    /// The "···" dropdown, drawn over the grid inside the popover.
+    fn menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let item = |id: &'static str,
+                    label: &'static str,
+                    enabled: bool,
+                    cx: &mut Context<Self>,
+                    action: fn(&mut Self, &mut Context<Self>)| {
             div()
-                .id(label)
+                .id(id)
                 .px(px(10.))
-                .py(px(3.))
+                .py(px(5.))
                 .rounded(px(5.))
                 .text_size(theme::TEXT_SMALL)
-                .font_weight(FontWeight::MEDIUM)
-                .cursor_pointer()
-                .when_some(active.then_some(()), |el, _| el.bg(theme::SEGMENT_ACTIVE))
-                .text_color(if active { theme::TEXT } else { theme::MUTED })
-                .on_click(cx.listener(move |this, _, _, cx| this.set_mode(mode, cx)))
+                .text_color(if enabled { theme.text } else { theme.tertiary })
+                .when(enabled, |el| {
+                    el.cursor_pointer()
+                        .hover(|s| s.bg(theme.hover))
+                        .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
+                })
                 .child(label)
         };
 
-        let mode = self.mode;
         div()
+            .absolute()
+            .top(px(HEADER_HEIGHT - 2.0))
+            .right(theme::PAD_X)
+            .w(px(168.))
+            .p(px(4.))
+            .rounded(px(8.))
+            .bg(theme.menu_bg)
+            .border_1()
+            .border_color(theme.border)
             .flex()
-            .flex_row()
-            .gap(px(2.))
-            .p(px(2.))
-            .rounded(px(6.))
-            .bg(theme::SEGMENT_TRACK)
-            .child(segment("Day", Mode::Day, mode == Mode::Day, cx))
-            .child(segment("Week", Mode::Week, mode == Mode::Week, cx))
+            .flex_col()
+            .child(item("menu-refresh", "Refresh", true, cx, |this, cx| {
+                this.menu_open = false;
+                cx.emit(PopoverEvent::Refresh);
+                cx.notify();
+            }))
+            .child(item("menu-login", "Launch at login", false, cx, |_, _| {}))
+            .child(div().h(px(1.)).my(px(4.)).bg(theme.separator))
+            .child(item("menu-quit", "Quit Daybar", true, cx, |this, cx| {
+                this.menu_open = false;
+                cx.quit();
+            }))
     }
 
     fn weekday_row(&self) -> impl IntoElement {
@@ -296,7 +477,7 @@ impl Popover {
             .flex()
             .flex_row()
             .px(theme::GRID_PAD_X)
-            .pb(px(4.))
+            .pb(px(2.))
             .h(px(WEEKDAY_ROW_HEIGHT))
             .child(div().w(theme::WEEK_COLUMN_WIDTH).flex_shrink_0())
             .children(model::WEEKDAY_LETTERS.iter().map(|letter| {
@@ -306,27 +487,27 @@ impl Popover {
                     .justify_center()
                     .text_size(theme::TEXT_MICRO)
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::FAINT)
+                    .text_color(self.theme.tertiary)
                     .child(*letter)
             }))
     }
 
     fn rule(&self) -> impl IntoElement {
-        div().h(px(1.)).mx(theme::PAD_X).bg(theme::RULE)
+        div().h(px(1.)).mx(theme::PAD_X).bg(self.theme.separator)
     }
 
     fn footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let hint = |keys: &'static str, label: &'static str| {
+        let theme = self.theme;
+        let text_button = |id: &'static str,
+                           label: &'static str,
+                           cx: &mut Context<Self>,
+                           action: fn(&mut Self, &mut Context<Self>)| {
             div()
-                .flex()
-                .flex_row()
-                .gap(px(4.))
-                .child(
-                    div()
-                        .font_family(theme::MONO_FAMILY)
-                        .text_color(theme::MUTED)
-                        .child(keys),
-                )
+                .id(id)
+                .cursor_pointer()
+                .text_color(theme.tertiary)
+                .hover(|s| s.text_color(theme.text))
+                .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
                 .child(label)
         };
 
@@ -337,30 +518,37 @@ impl Popover {
             .justify_between()
             .px(theme::PAD_X)
             .pt(px(8.))
-            .pb(px(10.))
-            .bg(theme::FOOTER_BG)
-            .border_t_1()
-            .border_color(theme::RULE)
+            .pb(px(9.))
             .text_size(theme::TEXT_TINY)
-            .text_color(theme::FAINT)
+            .text_color(theme.tertiary)
+            .child(div().child(footer_stamp(
+                self.selected,
+                self.now(),
+                self.selected == self.today(),
+            )))
             .child(
                 div()
                     .flex()
                     .flex_row()
-                    .gap(px(10.))
-                    .child(hint("←→", "day"))
-                    .child(hint("⏎", "open in Google Calendar")),
+                    .gap(px(12.))
+                    .child(text_button("today", "Today", cx, |this, cx| {
+                        this.go_today(cx)
+                    }))
+                    .child(text_button("week", "Week", cx, |this, cx| {
+                        this.toggle_week_mode(cx)
+                    })),
             )
-            .child(
-                div()
-                    .id("today")
-                    .cursor_pointer()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme::MUTED)
-                    .hover(|s| s.text_color(theme::TEXT))
-                    .on_click(cx.listener(|this, _, _, cx| this.go_today(cx)))
-                    .child("Today"),
-            )
+    }
+}
+
+/// `"Fri, Sep 11 · 12:40"` for today, `"Fri, Sep 11"` for any other day — the
+/// clock only means something when the date on the left is today's.
+pub(crate) fn footer_stamp(date: NaiveDate, now: NaiveDateTime, is_today: bool) -> String {
+    let stamp = date.format("%a, %b %-d").to_string();
+    if is_today {
+        format!("{stamp} · {}", model::short_time(now.time()))
+    } else {
+        stamp
     }
 }
 
@@ -387,9 +575,11 @@ fn month_start(from: NaiveDate, months: i64) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m as u32, 1).expect("first of a normalized month is always valid")
 }
 
-fn arrow_button(
+/// A 22px square glyph button: the header chevrons and the "···" menu.
+fn icon_button(
     id: &'static str,
     glyph: &'static str,
+    theme: Theme,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     div()
@@ -397,28 +587,28 @@ fn arrow_button(
         .flex()
         .items_center()
         .justify_center()
-        .size(px(22.))
+        .size(theme::ICON_BUTTON)
+        .flex_shrink_0()
         .rounded(px(5.))
-        .text_size(px(15.))
-        .text_color(theme::MUTED)
+        .text_size(theme::TEXT_BODY)
+        .text_color(theme.secondary)
         .cursor_pointer()
-        .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+        .hover(|s| s.bg(theme.hover).text_color(theme.text))
         .on_click(on_click)
         .child(glyph)
 }
 
-// ── Layout constants (see `docs/mockup-popover.dc.html`) ─────────────────────
+// ── Layout constants (see `docs/mockup-v2-inline-expand.dc.html`) ────────────
 
-const HEADER_HEIGHT: f32 = 12.0 + 24.0 + 8.0;
-const WEEKDAY_ROW_HEIGHT: f32 = 18.0;
-pub(crate) const LIST_PAD_TOP: f32 = 10.0;
-pub(crate) const LIST_PAD_BOTTOM: f32 = 6.0;
-const FOOTER_HEIGHT: f32 = 8.0 + 14.0 + 10.0;
+const HEADER_HEIGHT: f32 = 12.0 + 22.0 + 6.0;
+const WEEKDAY_ROW_HEIGHT: f32 = 16.0;
+pub(crate) const LIST_PAD_TOP: f32 = 6.0;
+pub(crate) const LIST_PAD_BOTTOM: f32 = 4.0;
+const FOOTER_HEIGHT: f32 = 8.0 + 14.0 + 9.0;
 
 fn grid_height() -> f32 {
     let cell: f32 = theme::CELL_HEIGHT.into();
-    let gap: f32 = theme::CELL_GAP.into();
-    6.0 * cell + 5.0 * gap + 10.0
+    6.0 * cell + 8.0
 }
 
 impl EventEmitter<PopoverEvent> for Popover {}
@@ -430,41 +620,70 @@ impl Focusable for Popover {
 }
 
 impl Render for Popover {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Follow the system appearance without the views having to ask.
+        let theme = Theme::for_appearance(window.appearance());
+        if theme != self.theme {
+            self.theme = theme;
+        }
+
         let header = self.header(cx);
         let grid = month_grid::render(self, cx);
         let list: gpui::AnyElement = match self.mode {
-            Mode::Day => day_list::render(self).into_any_element(),
+            Mode::Day => day_list::render(self, cx).into_any_element(),
             Mode::Week => week_list::render(self, cx).into_any_element(),
         };
         let footer = self.footer(cx);
+        let menu = self.menu_open.then(|| self.menu(cx));
 
         div()
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &PrevDay, _, cx| this.shift(-1, cx)))
             .on_action(cx.listener(|this, _: &NextDay, _, cx| this.shift(1, cx)))
-            .on_action(cx.listener(|this, _: &PrevWeek, _, cx| this.shift(-7, cx)))
-            .on_action(cx.listener(|this, _: &NextWeek, _, cx| this.shift(7, cx)))
+            .on_action(cx.listener(|this, _: &PrevWeek, _, cx| {
+                if !this.move_row(-1, cx) {
+                    this.shift(-7, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &NextWeek, _, cx| {
+                if !this.move_row(1, cx) {
+                    this.shift(7, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &FocusList, _, cx| this.focus_list(cx)))
+            .on_action(cx.listener(|this, _: &ToggleRow, _, cx| {
+                this.toggle_focused_row(cx);
+            }))
             .on_action(cx.listener(|this, _: &GoToday, _, cx| this.go_today(cx)))
-            .on_action(cx.listener(|this, _: &OpenDay, _, cx| this.open_in_google_calendar(cx)))
-            .on_action(cx.listener(|_, _: &Dismiss, _, cx| cx.emit(PopoverEvent::Close)))
+            .on_action(cx.listener(|this, _: &OpenDay, _, cx| {
+                // Enter toggles the focused row when the list has focus, and
+                // otherwise opens the selected day in the browser.
+                if this.focused_row.is_none() || !this.toggle_focused_row(cx) {
+                    this.open_in_google_calendar(cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &Dismiss, _, cx| this.dismiss(cx)))
+            .relative()
             .flex()
             .flex_col()
             .w(theme::POPOVER_WIDTH)
             .min_h(self.preferred_height())
-            .bg(theme::BG)
+            .bg(theme.bg)
             .rounded(theme::POPOVER_RADIUS)
+            .border_1()
+            .border_color(theme.border)
             .overflow_hidden()
             .font_family(theme::UI_FAMILY)
             .text_size(theme::TEXT_BODY)
-            .text_color(theme::TEXT)
+            .text_color(theme.text)
             .child(header)
             .child(self.weekday_row())
             .child(grid)
             .child(self.rule())
             .child(list)
             .child(footer)
+            .children(menu)
     }
 }
 
@@ -531,9 +750,19 @@ mod tests {
 
     #[test]
     fn chrome_constants_match_the_mockup() {
-        assert_eq!(HEADER_HEIGHT, 44.0);
-        // 6 rows of 34 with 2px gaps, plus the 10px bottom pad.
-        assert_eq!(grid_height(), 224.0);
-        assert_eq!(FOOTER_HEIGHT, 32.0);
+        assert_eq!(HEADER_HEIGHT, 40.0);
+        // 6 rows of 32, plus the 8px bottom pad.
+        assert_eq!(grid_height(), 200.0);
+        assert_eq!(FOOTER_HEIGHT, 31.0);
+    }
+
+    #[test]
+    fn the_footer_stamp_only_carries_a_clock_for_today() {
+        let now = d(2026, 9, 11).and_hms_opt(12, 40, 0).unwrap();
+        assert_eq!(
+            footer_stamp(d(2026, 9, 11), now, true),
+            "Fri, Sep 11 · 12:40"
+        );
+        assert_eq!(footer_stamp(d(2026, 9, 14), now, false), "Mon, Sep 14");
     }
 }

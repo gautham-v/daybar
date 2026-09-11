@@ -74,9 +74,14 @@ fn main() {
         // Esc (and anything else the view treats as a dismissal) closes.
         cx.subscribe(&popover, {
             let window = window.clone();
-            move |_, event, cx| match event {
+            let store = store.clone();
+            move |popover, event, cx| match event {
                 PopoverEvent::Close => {
                     close_popover(&window, cx);
+                }
+                // The "···" menu's Refresh item: refetch without closing.
+                PopoverEvent::Refresh => {
+                    refresh_in_background(cx, store.clone(), popover, false);
                 }
             }
         })
@@ -357,7 +362,7 @@ mod tests {
         let a = rect(1000.0, 60.0);
         let width: f32 = theme::POPOVER_WIDTH.into();
         let centered = a.x + a.width / 2.0 - width / 2.0;
-        assert_eq!(centered, 1000.0 + 30.0 - 160.0);
+        assert_eq!(centered, 1000.0 + 30.0 - width / 2.0);
     }
 
     #[test]
@@ -367,6 +372,6 @@ mod tests {
         let a = rect(1400.0, 40.0);
         let centered = a.x + a.width / 2.0 - width / 2.0;
         let max_x = (screen_width - width - SCREEN_MARGIN).max(SCREEN_MARGIN);
-        assert_eq!(centered.clamp(SCREEN_MARGIN, max_x), 1440.0 - 320.0 - 8.0);
+        assert_eq!(centered.clamp(SCREEN_MARGIN, max_x), 1440.0 - width - 8.0);
     }
 }

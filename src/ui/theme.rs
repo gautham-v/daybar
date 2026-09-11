@@ -1,9 +1,12 @@
-//! Visual tokens from `docs/mockup-popover.dc.html`, as gpui types.
+//! Visual tokens from `docs/mockup-v2-inline-expand.dc.html`, as gpui types.
 //!
-//! Everything the views need should come from here — no literal colors or
-//! magic numbers in `popover.rs`, `month_grid.rs`, `day_list.rs`, `week_list.rs`.
+//! Colors live in [`Theme`], which comes in a light and a dark set picked from
+//! the window's appearance; sizes and the type scale are appearance-independent
+//! consts. Everything the views need should come from here — no literal colors
+//! or magic numbers in `popover.rs`, `month_grid.rs`, `day_list.rs`,
+//! `week_list.rs`.
 
-use gpui::{px, Pixels, Rgba};
+use gpui::{px, Pixels, Rgba, WindowAppearance};
 
 /// `const`-friendly hex -> [`Rgba`] (gpui's own `rgb()` is not `const`).
 const fn hex(value: u32) -> Rgba {
@@ -23,92 +26,178 @@ const fn hex_a(value: u32, alpha: f32) -> Rgba {
 
 // ── Colors ───────────────────────────────────────────────────────────────────
 
-/// Popover background.
-pub const BG: Rgba = hex(0xfbfaf8);
-/// Primary text.
-pub const TEXT: Rgba = hex(0x1a1a1a);
-/// Secondary text (summaries, locations).
-pub const MUTED: Rgba = hex(0x8a8781);
-/// Tertiary text (weekday letters, week numbers, footer hints).
-pub const FAINT: Rgba = hex(0xa3a099);
-/// Hairline rules and borders.
-pub const RULE: Rgba = hex(0xebe8e2);
-/// The lighter rule between list rows.
-pub const ROW_RULE: Rgba = hex(0xf0ede8);
-/// Selected day: filled background.
-pub const SELECTED_BG: Rgba = hex(0x1a1a1a);
-/// Selected day: text on the fill.
-pub const SELECTED_FG: Rgba = hex(0xfbfaf8);
-/// Today / next-up accent.
-pub const ACCENT: Rgba = hex(0xc2410c);
-/// Footer band background.
-pub const FOOTER_BG: Rgba = hex(0xf6f4f0);
-/// Day/Week segmented-control track.
-pub const SEGMENT_TRACK: Rgba = hex(0xefece7);
-/// The selected segment's fill.
-pub const SEGMENT_ACTIVE: Rgba = hex(0xfbfaf8);
-/// Hover wash on a day cell.
-pub const HOVER: Rgba = hex(0xefece7);
-/// The "–" placeholder in the week list.
-pub const PLACEHOLDER: Rgba = hex(0xb5b2ab);
-/// Out-of-month day numbers.
-pub const DIM: Rgba = hex(0xc9c5be);
-/// Event dot under a day that has events.
-pub const DOT: Rgba = hex(0xc9c5be);
-/// Event dot under an out-of-month day.
-pub const DOT_DIM: Rgba = hex(0xe6e3dd);
-/// Dot under the selected day (drawn on the dark fill).
-pub const DOT_ON_SELECTED: Rgba = hex_a(0xfbfaf8, 0.7);
+/// The appearance-dependent half of the tokens.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Theme {
+    /// Popover background (a translucent material).
+    pub bg: Rgba,
+    /// Hairline border around the popover.
+    pub border: Rgba,
+    /// Primary text.
+    pub text: Rgba,
+    /// Secondary text: times, locations, chevron buttons.
+    pub secondary: Rgba,
+    /// Tertiary text: weekday letters, week numbers, footer.
+    pub tertiary: Rgba,
+    /// Separator rules.
+    pub separator: Rgba,
+    /// System blue: today's circle, the Join button.
+    pub accent: Rgba,
+    /// Text drawn on top of [`Theme::accent`].
+    pub on_accent: Rgba,
+    /// Selected (non-today) day circle.
+    pub selected_fill: Rgba,
+    /// Hover wash on a day cell or a button.
+    pub hover: Rgba,
+    /// Day numbers outside the visible month.
+    pub out_of_month: Rgba,
+    /// Weekend day numbers.
+    pub weekend: Rgba,
+    /// Event dot under an in-month day.
+    pub dot: Rgba,
+    /// Event dot under an out-of-month or weekend day.
+    pub dot_dim: Rgba,
+    /// Background of the expanded event row.
+    pub expanded_bg: Rgba,
+    /// The row disclosure chevron.
+    pub chevron: Rgba,
+    /// Secondary button fill ("Open in Google Calendar").
+    pub button_bg: Rgba,
+    /// Background of the "···" menu.
+    pub menu_bg: Rgba,
+    /// Fallback color bar when an event has no calendar color.
+    pub event_bar: Rgba,
+    /// The "–" placeholder in the week list.
+    pub placeholder: Rgba,
+}
 
-/// Opacity applied to today's events that have already ended.
-pub const PAST_OPACITY: f32 = 0.4;
+/// Light appearance (the mockup's own palette).
+pub const LIGHT: Theme = Theme {
+    bg: Rgba {
+        r: 240.0 / 255.0,
+        g: 240.0 / 255.0,
+        b: 242.0 / 255.0,
+        a: 0.96,
+    },
+    border: hex_a(0x000000, 0.12),
+    text: hex(0x1d1d1f),
+    secondary: hex(0x6e6e73),
+    tertiary: hex(0xaeaeb2),
+    separator: hex_a(0x000000, 0.08),
+    accent: hex(0x0a7aff),
+    on_accent: hex(0xffffff),
+    selected_fill: hex_a(0x000000, 0.08),
+    hover: hex_a(0x000000, 0.05),
+    out_of_month: hex(0xc7c7cc),
+    weekend: hex(0xaeaeb2),
+    dot: hex(0xaeaeb2),
+    dot_dim: hex(0xd1d1d6),
+    expanded_bg: hex_a(0x000000, 0.045),
+    chevron: hex(0xc7c7cc),
+    button_bg: hex_a(0x000000, 0.06),
+    menu_bg: hex(0xf7f7f9),
+    event_bar: hex(0x8e8e93),
+    placeholder: hex(0xc7c7cc),
+};
+
+/// Dark appearance: the same roles against a dark material.
+pub const DARK: Theme = Theme {
+    bg: Rgba {
+        r: 40.0 / 255.0,
+        g: 40.0 / 255.0,
+        b: 42.0 / 255.0,
+        a: 0.96,
+    },
+    border: hex_a(0xffffff, 0.14),
+    text: hex(0xf5f5f7),
+    secondary: hex(0x98989d),
+    tertiary: hex(0x8e8e93),
+    separator: hex_a(0xffffff, 0.10),
+    accent: hex(0x0a84ff),
+    on_accent: hex(0xffffff),
+    selected_fill: hex_a(0xffffff, 0.14),
+    hover: hex_a(0xffffff, 0.08),
+    out_of_month: hex(0x545458),
+    weekend: hex(0x8e8e93),
+    dot: hex(0x8e8e93),
+    dot_dim: hex(0x545458),
+    expanded_bg: hex_a(0xffffff, 0.07),
+    chevron: hex(0x636366),
+    button_bg: hex_a(0xffffff, 0.12),
+    menu_bg: hex(0x3a3a3c),
+    event_bar: hex(0x8e8e93),
+    placeholder: hex(0x636366),
+};
+
+impl Default for Theme {
+    fn default() -> Self {
+        LIGHT
+    }
+}
+
+impl Theme {
+    /// Pick the set matching the window's appearance.
+    pub fn for_appearance(appearance: WindowAppearance) -> Self {
+        match appearance {
+            WindowAppearance::Dark | WindowAppearance::VibrantDark => DARK,
+            WindowAppearance::Light | WindowAppearance::VibrantLight => LIGHT,
+        }
+    }
+}
+
+/// Opacity applied to events that have already ended.
+pub const PAST_OPACITY: f32 = 0.45;
 
 // ── Sizes ────────────────────────────────────────────────────────────────────
 
 /// Popover width. Fixed; height grows with content.
-pub const POPOVER_WIDTH: Pixels = px(320.);
+pub const POPOVER_WIDTH: Pixels = px(300.);
 /// Corner radius of the popover.
-pub const POPOVER_RADIUS: Pixels = px(12.);
+pub const POPOVER_RADIUS: Pixels = px(11.);
 /// Gap between the menu bar and the top of the popover.
 pub const POPOVER_TOP_GAP: Pixels = px(6.);
-/// Minimum height of the list area, so the popover does not jump when a day is empty.
-pub const LIST_MIN_HEIGHT: Pixels = px(200.);
 
-/// Horizontal padding for the header, list, and footer.
-pub const PAD_X: Pixels = px(16.);
-/// Horizontal padding for the grid (cells carry their own inset).
-pub const GRID_PAD_X: Pixels = px(12.);
+/// Horizontal padding for the header, rule, and footer.
+pub const PAD_X: Pixels = px(14.);
+/// Horizontal padding for the grid.
+pub const GRID_PAD_X: Pixels = px(10.);
+/// Horizontal padding for the event list.
+pub const LIST_PAD_X: Pixels = px(6.);
 
 /// Height of one day cell in the month grid.
-pub const CELL_HEIGHT: Pixels = px(34.);
-/// Corner radius of a day cell.
-pub const CELL_RADIUS: Pixels = px(7.);
-/// Gap between day cells, in both axes.
-pub const CELL_GAP: Pixels = px(2.);
+pub const CELL_HEIGHT: Pixels = px(32.);
+/// Diameter of the today / selected circle inside a cell.
+pub const CELL_CIRCLE: Pixels = px(26.);
 /// Width of the ISO week-number gutter on the left of the grid.
-pub const WEEK_COLUMN_WIDTH: Pixels = px(20.);
+pub const WEEK_COLUMN_WIDTH: Pixels = px(22.);
 /// Size of the event dot under a day number.
-pub const DOT_SIZE: Pixels = px(4.);
+pub const DOT_SIZE: Pixels = px(3.);
 
-/// Width of the time column in the day list.
-pub const TIME_COLUMN_WIDTH: Pixels = px(40.);
+/// Width of the color bar on an event row.
+pub const BAR_WIDTH: Pixels = px(3.);
+/// Height of the color bar on a collapsed event row.
+pub const BAR_HEIGHT: Pixels = px(26.);
+/// Corner radius of an event row.
+pub const ROW_RADIUS: Pixels = px(7.);
+/// Size of the header's chevron / "···" buttons.
+pub const ICON_BUTTON: Pixels = px(22.);
 /// Width of the DOW/day column in the week list.
 pub const WEEK_LABEL_WIDTH: Pixels = px(40.);
 
 // ── Type scale ───────────────────────────────────────────────────────────────
 
-/// Month title.
-pub const TEXT_TITLE: Pixels = px(15.);
-/// Body: event titles, day numbers.
+/// Month title and event titles.
+pub const TEXT_TITLE: Pixels = px(13.);
+/// Body: event titles, expanded detail lines.
 pub const TEXT_BODY: Pixels = px(13.);
-/// Secondary: locations, summaries, segment labels, times.
+/// Secondary: day numbers, detail lines, buttons.
 pub const TEXT_SMALL: Pixels = px(12.);
-/// Footer hints.
+/// Event times, footer.
 pub const TEXT_TINY: Pixels = px(11.);
 /// Weekday letters and week numbers.
 pub const TEXT_MICRO: Pixels = px(10.);
 
-/// Monospace family for times and key hints.
+/// Monospace family, used sparingly.
 pub const MONO_FAMILY: &str = "SF Mono";
 /// UI family.
 pub const UI_FAMILY: &str = ".SystemUIFont";
@@ -118,23 +207,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hex_round_trips_the_mockup_background() {
-        let bg = BG;
-        assert_eq!((bg.r * 255.0).round() as u32, 0xfb);
-        assert_eq!((bg.g * 255.0).round() as u32, 0xfa);
-        assert_eq!((bg.b * 255.0).round() as u32, 0xf8);
-        assert_eq!(bg.a, 1.0);
+    fn light_background_is_the_mockup_material() {
+        assert_eq!((LIGHT.bg.r * 255.0).round() as u32, 240);
+        assert_eq!((LIGHT.bg.b * 255.0).round() as u32, 242);
+        assert!((LIGHT.bg.a - 0.96).abs() < 1e-6);
     }
 
     #[test]
-    fn accent_is_the_mockup_orange() {
-        assert_eq!((ACCENT.r * 255.0).round() as u32, 0xc2);
-        assert_eq!((ACCENT.g * 255.0).round() as u32, 0x41);
-        assert_eq!((ACCENT.b * 255.0).round() as u32, 0x0c);
+    fn accent_is_system_blue() {
+        assert_eq!((LIGHT.accent.r * 255.0).round() as u32, 0x0a);
+        assert_eq!((LIGHT.accent.g * 255.0).round() as u32, 0x7a);
+        assert_eq!((LIGHT.accent.b * 255.0).round() as u32, 0xff);
     }
 
     #[test]
-    fn popover_is_320_wide() {
-        assert_eq!(POPOVER_WIDTH, px(320.));
+    fn appearance_picks_the_matching_set() {
+        assert_eq!(Theme::for_appearance(WindowAppearance::Light), LIGHT);
+        assert_eq!(Theme::for_appearance(WindowAppearance::VibrantLight), LIGHT);
+        assert_eq!(Theme::for_appearance(WindowAppearance::Dark), DARK);
+        assert_eq!(Theme::for_appearance(WindowAppearance::VibrantDark), DARK);
+    }
+
+    #[test]
+    fn popover_is_300_wide() {
+        assert_eq!(POPOVER_WIDTH, px(300.));
+        assert_eq!(POPOVER_RADIUS, px(11.));
     }
 }

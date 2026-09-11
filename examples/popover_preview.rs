@@ -63,6 +63,7 @@ fn main() {
 
                 cx.subscribe(&popover, |_, event, _| match event {
                     PopoverEvent::Close => println!("preview: popover asked to close"),
+                    PopoverEvent::Refresh => println!("preview: refresh requested"),
                 })
                 .detach();
 
