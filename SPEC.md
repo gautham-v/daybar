@@ -47,7 +47,7 @@ Reference: `docs/mockup-v2-inline-expand.dc.html` (option A, approved).
 
 ### Visual
 - Replace the warm paper palette with a native macOS material look: popover background
-  `rgba(240,240,242,0.96)` light (`rgba(40,40,42,0.96)` dark), text `#1d1d1f`, secondary `#6e6e73`,
+  `#f0f0f2` light (`#28282a` dark), fully opaque, text `#1d1d1f`, secondary `#6e6e73`,
   tertiary `#aeaeb2`, separators `rgba(0,0,0,0.08)`, today = filled system blue `#0a7aff` circle
   26px with white bold number, selected (non-today) day = `rgba(0,0,0,0.08)` filled circle.
   Follow the system appearance (light/dark) automatically.

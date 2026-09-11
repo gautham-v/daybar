@@ -29,7 +29,7 @@ const fn hex_a(value: u32, alpha: f32) -> Rgba {
 /// The appearance-dependent half of the tokens.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Theme {
-    /// Popover background (a translucent material).
+    /// Popover background (fully opaque).
     pub bg: Rgba,
     /// Hairline border around the popover.
     pub border: Rgba,
@@ -77,7 +77,7 @@ pub const LIGHT: Theme = Theme {
         r: 240.0 / 255.0,
         g: 240.0 / 255.0,
         b: 242.0 / 255.0,
-        a: 0.96,
+        a: 1.0,
     },
     border: hex_a(0x000000, 0.12),
     text: hex(0x1d1d1f),
@@ -106,7 +106,7 @@ pub const DARK: Theme = Theme {
         r: 40.0 / 255.0,
         g: 40.0 / 255.0,
         b: 42.0 / 255.0,
-        a: 0.96,
+        a: 1.0,
     },
     border: hex_a(0xffffff, 0.14),
     text: hex(0xf5f5f7),
@@ -210,7 +210,7 @@ mod tests {
     fn light_background_is_the_mockup_material() {
         assert_eq!((LIGHT.bg.r * 255.0).round() as u32, 240);
         assert_eq!((LIGHT.bg.b * 255.0).round() as u32, 242);
-        assert!((LIGHT.bg.a - 0.96).abs() < 1e-6);
+        assert!((LIGHT.bg.a - 1.0).abs() < 1e-6);
     }
 
     #[test]
