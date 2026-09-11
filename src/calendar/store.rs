@@ -4,10 +4,10 @@
 //! cheap to clone — the UI holds a handle, a background refresh holds another.
 //! No gpui types appear here on purpose.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use chrono::{Duration, Local, NaiveDate};
+use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
 
 use crate::calendar::{AccessState, CalendarSource};
 use crate::model::{sort_for_day, Event};
@@ -197,15 +197,28 @@ pub fn group_by_date(
     }
     for events in map.values_mut() {
         sort_for_day(events);
+        dedupe_identical(events);
     }
     map
+}
+
+/// Drop later duplicates of the same event within one day.
+///
+/// A subscribed calendar (US holidays, say) synced into several accounts hands
+/// EventKit one copy per account with different identifiers, so "Labor Day"
+/// shows up three times. Two events count as the same when their title, start,
+/// end and all-day flag all match; the first one wins. Runs after
+/// [`sort_for_day`], which already puts identical events next to each other.
+fn dedupe_identical(events: &mut Vec<Event>) {
+    let mut seen: HashSet<(String, NaiveDateTime, NaiveDateTime, bool)> = HashSet::new();
+    events
+        .retain(|event| seen.insert((event.title.clone(), event.start, event.end, event.all_day)));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::calendar::stub::StubSource;
-    use chrono::NaiveDateTime;
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, day).unwrap()
@@ -301,6 +314,49 @@ mod tests {
         let map = group_by_date(events, day, day);
         let order: Vec<&str> = map[&day].iter().map(|e| e.id.as_str()).collect();
         assert_eq!(order, vec!["alpha", "zeta"]);
+    }
+
+    #[test]
+    fn identical_events_from_several_calendars_are_deduped() {
+        let day = d(2026, 9, 7);
+        let holiday = |id: &str| Event {
+            id: id.into(),
+            title: "Labor Day".into(),
+            location: None,
+            start: at(day, 0, 0),
+            end: at(day, 23, 59),
+            all_day: true,
+        };
+        let mut other = holiday("other");
+        other.title = "Labor Day (observed)".into();
+        let map = group_by_date(
+            vec![
+                holiday("work"),
+                holiday("personal"),
+                holiday("school"),
+                other,
+            ],
+            day,
+            day,
+        );
+        let titles: Vec<&str> = map[&day].iter().map(|e| e.title.as_str()).collect();
+        assert_eq!(titles, vec!["Labor Day", "Labor Day (observed)"]);
+        // The first copy is the one kept.
+        assert_eq!(map[&day][0].id, "work");
+    }
+
+    #[test]
+    fn same_title_at_different_times_is_not_a_duplicate() {
+        let day = d(2026, 9, 11);
+        let map = group_by_date(
+            vec![
+                ev("standup", at(day, 9, 0), at(day, 9, 15), false),
+                ev("standup", at(day, 17, 0), at(day, 17, 15), false),
+            ],
+            day,
+            day,
+        );
+        assert_eq!(map[&day].len(), 2);
     }
 
     #[test]
