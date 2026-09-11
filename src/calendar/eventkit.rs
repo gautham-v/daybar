@@ -294,7 +294,15 @@ unsafe fn participant_name(p: &EKParticipant) -> Option<String> {
         return name;
     }
     // No display name: fall back to the local part of the mailto: URL.
-    let url = unsafe { p.URL() };
+    //
+    // objc2-event-kit declares `URL` nonnull, so its generated binding panics
+    // on a nil one — and EventKit does hand back participants without a URL
+    // (Exchange/ICS invitees, room resources). Ask for it as optional instead;
+    // this runs on the refresh task's thread, where a panic would kill the
+    // whole refresh.
+    let url: Option<objc2::rc::Retained<objc2_foundation::NSURL>> =
+        unsafe { objc2::msg_send![p, URL] };
+    let url = url?;
     let text = url.absoluteString()?.to_string();
     let address = text.strip_prefix("mailto:").unwrap_or(&text);
     let local = address.split('@').next().unwrap_or(address).trim();

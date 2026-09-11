@@ -39,13 +39,13 @@ impl Event {
         self.start.date() <= day && day <= self.end.date()
     }
 
-    /// The link the "Join" button should open: the event's own URL when it has
-    /// one, otherwise the first Zoom / Meet / Teams / Webex link found in the
-    /// url, location or notes.
+    /// The link the "Join" button should open: the first Zoom / Meet / Teams /
+    /// Webex link found in the url, location or notes.
+    ///
+    /// `EKEvent.URL` is a general-purpose field — an agenda doc, a Notion page,
+    /// a ticket — so a bare URL is *not* a meeting link; it is offered as
+    /// [`Event::link_url`] ("Open link") instead.
     pub fn join_url(&self) -> Option<String> {
-        if let Some(url) = self.url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            return Some(url.to_string());
-        }
         [
             self.url.as_deref(),
             self.location.as_deref(),
@@ -54,6 +54,19 @@ impl Event {
         .into_iter()
         .flatten()
         .find_map(find_meeting_link)
+    }
+
+    /// The event's own URL, when it is not itself the meeting link — the
+    /// secondary "Open link" affordance.
+    pub fn link_url(&self) -> Option<String> {
+        if self.join_url().is_some() {
+            return None;
+        }
+        self.url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
     }
 
     /// `"Chetan, Priya, you"` — the collapsed attendee line, or `None` when
@@ -261,6 +274,16 @@ pub fn short_time(t: NaiveTime) -> String {
         h => h,
     };
     format!("{}:{:02}", h, t.minute())
+}
+
+/// `"AM"` / `"PM"` for a time — appended to the *end* of a span so an evening
+/// event does not read as an early-morning one.
+pub fn meridiem(t: NaiveTime) -> &'static str {
+    if t.hour() >= 12 {
+        "PM"
+    } else {
+        "AM"
+    }
 }
 
 /// Title for the day list: `"Today"`, otherwise `"Thursday 11"`.
@@ -519,13 +542,23 @@ mod tests {
     }
 
     #[test]
-    fn join_url_prefers_the_events_own_url() {
+    fn join_url_prefers_a_real_meeting_link_over_a_bare_url() {
         let e = ev_with(
             Some("https://example.com/agenda"),
             Some("https://zoom.us/j/123"),
             None,
         );
-        assert_eq!(e.join_url().as_deref(), Some("https://example.com/agenda"));
+        assert_eq!(e.join_url().as_deref(), Some("https://zoom.us/j/123"));
+        // The agenda link is not a meeting, so it is not offered as one.
+        assert_eq!(e.link_url(), None);
+    }
+
+    #[test]
+    fn a_bare_url_is_an_open_link_not_a_join() {
+        let e = ev_with(Some("https://example.com/agenda"), None, None);
+        assert_eq!(e.join_url(), None);
+        assert_eq!(e.link_url().as_deref(), Some("https://example.com/agenda"));
+        assert_eq!(Event::default().link_url(), None);
     }
 
     #[test]

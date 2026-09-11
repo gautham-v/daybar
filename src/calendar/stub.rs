@@ -90,7 +90,8 @@ impl StubSource {
                 all_day: false,
                 calendar_color: Some(PURPLE),
                 notes: Some("Career conversation — pick up the thread from last month.".into()),
-                url: None,
+                // A plain doc link, not a meeting: exercises "Open link".
+                url: Some("https://example.com/1-1-agenda".into()),
                 attendees: people(&["Priya", "you"]),
             });
         }
@@ -98,7 +99,7 @@ impl StubSource {
         if dom.is_multiple_of(3) {
             events.push(Event {
                 id: format!("stub-{day}-review"),
-                title: "Design review".into(),
+                title: "Design review — v2 popover, inline expand, native material".into(),
                 location: Some("Room 4 — Kestrel".into()),
                 start: Self::at(day, 14, 0),
                 end: Self::at(day, 15, 0),

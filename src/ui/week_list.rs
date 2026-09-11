@@ -15,7 +15,8 @@ use crate::ui::popover::{Popover, LIST_PAD_BOTTOM, LIST_PAD_TOP};
 use crate::ui::theme;
 
 const ROW_PAD: f32 = 7.0;
-const LABEL_BLOCK: f32 = 28.0;
+/// pt(1) + the two pinned label lines below.
+const LABEL_BLOCK: f32 = 1.0 + 12.0 + EVENT_LINE;
 const EVENT_LINE: f32 = 16.0;
 
 /// Height of the week list for a week whose days have these event counts.
@@ -101,8 +102,8 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
                         .when(events.is_empty(), |el| {
                             el.child(
                                 div()
-                                    .pt(px(2.))
                                     .text_size(theme::TEXT_SMALL)
+                                    .line_height(px(EVENT_LINE))
                                     .text_color(theme.placeholder)
                                     .child("–"),
                             )
@@ -118,7 +119,9 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
                                 .flex_row()
                                 .gap(px(8.))
                                 .overflow_hidden()
+                                .h(px(EVENT_LINE))
                                 .text_size(theme::TEXT_SMALL)
+                                .line_height(px(EVENT_LINE))
                                 .child(
                                     div()
                                         .w(px(38.))
@@ -129,8 +132,7 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
                                 .child(
                                     div()
                                         .min_w_0()
-                                        .overflow_hidden()
-                                        .text_ellipsis()
+                                        .truncate()
                                         .font_weight(FontWeight::MEDIUM)
                                         .child(event.title.clone()),
                                 )
@@ -142,6 +144,11 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_label_block_matches_the_pinned_line_heights() {
+        assert_eq!(LABEL_BLOCK, 29.0);
+    }
 
     #[test]
     fn empty_week_uses_the_label_floor() {

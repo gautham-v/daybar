@@ -9,13 +9,14 @@
 use chrono::NaiveDateTime;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Rgba,
-    StatefulInteractiveElement, Styled,
+    div, percentage, px, svg, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    Rgba, StatefulInteractiveElement, Styled, Transformation,
 };
 
 use crate::calendar::AccessState;
 use crate::model::{self, Event};
 
+use crate::ui::icons;
 use crate::ui::popover::{Popover, LIST_PAD_BOTTOM, LIST_PAD_TOP};
 use crate::ui::theme::{self, Theme};
 
@@ -33,7 +34,7 @@ const DETAIL_PAD_BOTTOM: f32 = 10.0;
 const DETAIL_GAP: f32 = 8.0;
 const DETAIL_LINE: f32 = 17.0;
 const NOTES_LINE: f32 = 17.0;
-const BUTTON_ROW: f32 = 24.0 + 2.0;
+const BUTTON_ROW: f32 = 4.0 * 2.0 + DETAIL_LINE + 2.0;
 /// Notes are clamped to this many lines.
 const NOTES_MAX_LINES: usize = 6;
 /// Roughly how many characters of `TEXT_SMALL` fit across the detail column.
@@ -165,10 +166,13 @@ pub(crate) fn time_line(event: &Event, now: NaiveDateTime, is_next: bool) -> Str
     if event.all_day {
         return "all-day".to_string();
     }
+    // Only the end carries the meridiem, as the mockup does — a bare
+    // "4:30 – 6:00" cannot be told from half past four in the morning.
     let span = format!(
-        "{} – {}",
+        "{} – {} {}",
         model::short_time(event.start.time()),
-        model::short_time(event.end.time())
+        model::short_time(event.end.time()),
+        model::meridiem(event.end.time())
     );
     match is_next.then(|| starts_in(event.start, now)).flatten() {
         Some(tail) => format!("{span} · {tail}"),
@@ -213,6 +217,7 @@ pub fn render(state: &Popover, cx: &mut Context<Popover>) -> impl IntoElement {
                     .w_full()
                     .text_center()
                     .text_size(theme::TEXT_SMALL)
+                    .line_height(px(EMPTY_LINE))
                     .text_color(theme.tertiary)
                     .child(notice),
             )
@@ -283,14 +288,18 @@ fn row_header(
                     div()
                         .font_weight(FontWeight::MEDIUM)
                         .text_size(theme::TEXT_BODY)
+                        .line_height(px(TITLE_LINE))
                         .text_color(theme.text)
-                        .overflow_hidden()
-                        .text_ellipsis()
+                        // .truncate() is overflow_hidden + nowrap + ellipsis;
+                        // without the nowrap a long title wraps and the row
+                        // grows past ROW_HEIGHT.
+                        .truncate()
                         .child(event.title.clone()),
                 )
                 .child(
                     div()
                         .text_size(theme::TEXT_TINY)
+                        .line_height(px(TIME_LINE))
                         .text_color(if is_next {
                             theme.accent
                         } else {
@@ -300,14 +309,16 @@ fn row_header(
                 ),
         )
         .child(
-            div()
+            svg()
+                .path(icons::CHEVRON_RIGHT)
+                .size(px(10.))
                 .flex_shrink_0()
-                .w(px(10.))
-                .text_size(theme::TEXT_TINY)
                 .text_color(theme.chevron)
-                // gpui has no rotation transform for a text element, so the
-                // "rotated" chevron is spelled with the glyph pointing down.
-                .child(if is_open { "⌄" } else { "›" }),
+                // One glyph, rotated a quarter turn when the row is open —
+                // the mockup's disclosure affordance.
+                .when(is_open, |el| {
+                    el.with_transformation(Transformation::rotate(percentage(0.25)))
+                }),
         )
 }
 
@@ -319,25 +330,27 @@ fn details(event: &Event, theme: &Theme, cx: &mut Context<Popover>) -> impl Into
             .flex_row()
             .items_center()
             .gap(px(8.))
+            .h(px(DETAIL_LINE))
             .text_size(theme::TEXT_SMALL)
             .text_color(theme.text)
             .child(
-                div()
-                    .w(px(13.))
+                svg()
+                    .path(icon)
+                    .size(px(13.))
                     .flex_shrink_0()
-                    .text_color(theme.secondary)
-                    .child(icon),
+                    .text_color(theme.secondary),
             )
             .child(
                 div()
                     .min_w_0()
-                    .overflow_hidden()
-                    .text_ellipsis()
+                    .line_height(px(DETAIL_LINE))
+                    .truncate()
                     .child(text),
             )
     };
 
     let join = event.join_url();
+    let link = event.link_url();
     let day_url = model::google_calendar_day_url(event.start.date());
 
     div()
@@ -348,8 +361,8 @@ fn details(event: &Event, theme: &Theme, cx: &mut Context<Popover>) -> impl Into
         .pb(px(DETAIL_PAD_BOTTOM))
         .pl(px(21.))
         .pr(px(8.))
-        .children(event.location.clone().map(|l| detail_row("◎", l)))
-        .children(event.attendee_line().map(|a| detail_row("⚇", a)))
+        .children(event.location.clone().map(|l| detail_row(icons::PIN, l)))
+        .children(event.attendee_line().map(|a| detail_row(icons::PEOPLE, a)))
         .children(event.notes_display().map(|notes| {
             div()
                 .text_size(theme::TEXT_SMALL)
@@ -371,6 +384,7 @@ fn details(event: &Event, theme: &Theme, cx: &mut Context<Popover>) -> impl Into
                         .rounded(px(6.))
                         .bg(theme.accent)
                         .text_size(theme::TEXT_SMALL)
+                        .line_height(px(DETAIL_LINE))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(theme.on_accent)
                         .cursor_pointer()
@@ -380,6 +394,25 @@ fn details(event: &Event, theme: &Theme, cx: &mut Context<Popover>) -> impl Into
                         }))
                         .child("Join")
                 }))
+                // A bare EKEvent.URL is a doc/ticket, not a meeting: offer it
+                // as a plain "Open link" rather than a blue Join.
+                .children(link.map(|url| {
+                    div()
+                        .id("open-link")
+                        .px(px(10.))
+                        .py(px(4.))
+                        .rounded(px(6.))
+                        .bg(theme.button_bg)
+                        .text_size(theme::TEXT_SMALL)
+                        .line_height(px(DETAIL_LINE))
+                        .text_color(theme.text)
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.stop_propagation();
+                            cx.open_url(&url);
+                        }))
+                        .child("Open link")
+                }))
                 .child(
                     div()
                         .id("open-gcal")
@@ -388,6 +421,7 @@ fn details(event: &Event, theme: &Theme, cx: &mut Context<Popover>) -> impl Into
                         .rounded(px(6.))
                         .bg(theme.button_bg)
                         .text_size(theme::TEXT_SMALL)
+                        .line_height(px(DETAIL_LINE))
                         .text_color(theme.text)
                         .cursor_pointer()
                         .on_click(cx.listener(move |_, _, _, cx| {
@@ -526,14 +560,14 @@ mod tests {
     #[test]
     fn the_time_line_spans_start_to_end() {
         let e = ev(11, false);
-        assert_eq!(time_line(&e, now(), false), "11:00 – 12:00");
+        assert_eq!(time_line(&e, now(), false), "11:00 – 12:00 PM");
         assert_eq!(time_line(&ev(0, true), now(), false), "all-day");
     }
 
     #[test]
     fn the_next_event_gets_a_countdown_tail() {
         let e = ev(13, false);
-        assert_eq!(time_line(&e, now(), true), "1:00 – 2:00 · in 20 min");
+        assert_eq!(time_line(&e, now(), true), "1:00 – 2:00 PM · in 20 min");
     }
 
     #[test]

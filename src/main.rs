@@ -19,6 +19,7 @@ use objc2::MainThreadMarker;
 
 use daybar::calendar::{eventkit::EventKitSource, CalendarStore};
 use daybar::status_item::{ScreenRect, StatusItem, StatusItemEvent};
+use daybar::ui::icons::Assets;
 use daybar::ui::popover::{self, Popover, PopoverEvent};
 use daybar::ui::theme;
 
@@ -38,7 +39,7 @@ const TOGGLE_GRACE: StdDuration = StdDuration::from_millis(250);
 type WindowSlot = Rc<RefCell<Option<WindowHandle<Popover>>>>;
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
+    Application::new().with_assets(Assets).run(|cx: &mut App| {
         let mtm = MainThreadMarker::new().expect("gpui runs its callbacks on the main thread");
         daybar::status_item::set_accessory_activation_policy(mtm);
         popover::bind_keys(cx);

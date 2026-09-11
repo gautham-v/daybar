@@ -5,6 +5,7 @@
 //! All colors and sizes come from [`theme`] — no literals in the views.
 
 pub mod day_list;
+pub mod icons;
 pub mod month_grid;
 pub mod popover;
 pub mod theme;

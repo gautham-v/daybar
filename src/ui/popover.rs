@@ -8,13 +8,14 @@
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    actions, div, px, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
-    InteractiveElement, IntoElement, KeyBinding, ParentElement, Pixels, Render,
-    StatefulInteractiveElement, Styled, Window,
+    actions, div, px, svg, AnyWindowHandle, App, Context, Entity, EventEmitter, FocusHandle,
+    Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding, ParentElement, Pixels,
+    Render, StatefulInteractiveElement, Styled, Window,
 };
 
 use crate::calendar::AccessState;
 use crate::model::{self, Event};
+use crate::ui::icons;
 use crate::ui::theme::Theme;
 use crate::ui::{day_list, month_grid, theme, week_list};
 
@@ -91,7 +92,11 @@ pub struct Popover {
     /// Colors for the window's current appearance, refreshed each render.
     theme: Theme,
     /// Redraws the popover when the system flips between light and dark.
-    appearance: Option<gpui::Subscription>,
+    ///
+    /// The subscription belongs to the *window* it was made on, but one
+    /// `Popover` outlives many windows (main.rs opens a fresh one per click),
+    /// so it is keyed on the window handle and remade whenever that changes.
+    appearance: Option<(AnyWindowHandle, gpui::Subscription)>,
     provider: EventProvider,
     now: Clock,
     access: AccessProbe,
@@ -216,7 +221,7 @@ impl Popover {
     // ── Row state ────────────────────────────────────────────────────────────
 
     /// Click (or Enter/Space) on row `index`: focus it and toggle its details.
-    pub(crate) fn toggle_row(&mut self, index: usize, id: &str, cx: &mut Context<Self>) {
+    pub fn toggle_row(&mut self, index: usize, id: &str, cx: &mut Context<Self>) {
         self.focused_row = Some(index);
         self.expanded = if self.expanded.as_deref() == Some(id) {
             None
@@ -279,7 +284,15 @@ impl Popover {
             self.focused_row = None;
             return false;
         }
-        let next = (current as isize + delta).clamp(0, count as isize - 1) as usize;
+        let next = current as isize + delta;
+        if next < 0 || next >= count as isize {
+            // At the edges the arrows hand control back to date navigation,
+            // rather than trapping focus in the list forever.
+            self.focused_row = None;
+            cx.notify();
+            return false;
+        }
+        let next = next as usize;
         self.focused_row = Some(next);
         // Keep the disclosure with the focus: an open row follows the cursor.
         if self.expanded.is_some() {
@@ -299,6 +312,9 @@ impl Popover {
         } else if self.expanded.is_some() {
             self.expanded = None;
             cx.notify();
+        } else if self.focused_row.is_some() {
+            self.focused_row = None;
+            cx.notify();
         } else {
             cx.emit(PopoverEvent::Close);
         }
@@ -317,7 +333,7 @@ impl Popover {
         cx.notify();
     }
 
-    fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
+    pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
         self.mode = mode;
         self.expanded = None;
         self.focused_row = None;
@@ -340,6 +356,7 @@ impl Popover {
 
     /// Back to today in Day mode — what a fresh popover open should show.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
+        self.focused_row = None;
         self.go_today(cx);
     }
 
@@ -378,7 +395,8 @@ impl Popover {
 
     /// Height the window should be given for the current content.
     pub fn preferred_height(&self) -> Pixels {
-        px(self.chrome_height() + self.list_height())
+        // The 1px hairline runs outside the content box on both edges.
+        px(self.chrome_height() + self.list_height() + 2.0 * BORDER)
     }
 
     // ── Pieces ───────────────────────────────────────────────────────────────
@@ -401,13 +419,13 @@ impl Popover {
                     .gap(px(2.))
                     .child(icon_button(
                         "prev",
-                        "‹",
+                        icons::CHEVRON_LEFT,
                         theme,
                         cx.listener(|this, _, _, cx| this.step_month(-1, cx)),
                     ))
                     .child(icon_button(
                         "next",
-                        "›",
+                        icons::CHEVRON_RIGHT,
                         theme,
                         cx.listener(|this, _, _, cx| this.step_month(1, cx)),
                     )),
@@ -421,7 +439,7 @@ impl Popover {
             )
             .child(icon_button(
                 "more",
-                "···",
+                icons::ELLIPSIS,
                 theme,
                 cx.listener(|this, _, _, cx| this.toggle_menu(cx)),
             ))
@@ -441,6 +459,7 @@ impl Popover {
                 .py(px(5.))
                 .rounded(px(5.))
                 .text_size(theme::TEXT_SMALL)
+                .line_height(px(17.))
                 .text_color(if enabled { theme.text } else { theme.tertiary })
                 .when(enabled, |el| {
                     el.cursor_pointer()
@@ -492,6 +511,7 @@ impl Popover {
                     .flex_1()
                     .justify_center()
                     .text_size(theme::TEXT_MICRO)
+                    .line_height(px(WEEKDAY_ROW_HEIGHT - 2.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(self.theme.tertiary)
                     .child(*letter)
@@ -526,6 +546,7 @@ impl Popover {
             .pt(px(8.))
             .pb(px(9.))
             .text_size(theme::TEXT_TINY)
+            .line_height(px(FOOTER_LINE))
             .text_color(theme.tertiary)
             .child(div().child(footer_stamp(
                 self.selected,
@@ -581,10 +602,10 @@ fn month_start(from: NaiveDate, months: i64) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m as u32, 1).expect("first of a normalized month is always valid")
 }
 
-/// A 22px square glyph button: the header chevrons and the "···" menu.
+/// A 22px square icon button: the header chevrons and the "···" menu.
 fn icon_button(
     id: &'static str,
-    glyph: &'static str,
+    icon: &'static str,
     theme: Theme,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
@@ -596,12 +617,11 @@ fn icon_button(
         .size(theme::ICON_BUTTON)
         .flex_shrink_0()
         .rounded(px(5.))
-        .text_size(theme::TEXT_BODY)
         .text_color(theme.secondary)
         .cursor_pointer()
         .hover(|s| s.bg(theme.hover).text_color(theme.text))
         .on_click(on_click)
-        .child(glyph)
+        .child(svg().path(icon).size(px(12.)).text_color(theme.secondary))
 }
 
 // ── Layout constants (see `docs/mockup-v2-inline-expand.dc.html`) ────────────
@@ -610,7 +630,9 @@ const HEADER_HEIGHT: f32 = 12.0 + 22.0 + 6.0;
 const WEEKDAY_ROW_HEIGHT: f32 = 16.0;
 pub(crate) const LIST_PAD_TOP: f32 = 6.0;
 pub(crate) const LIST_PAD_BOTTOM: f32 = 4.0;
-const FOOTER_HEIGHT: f32 = 8.0 + 14.0 + 9.0;
+const BORDER: f32 = 1.0;
+const FOOTER_LINE: f32 = 14.0;
+const FOOTER_HEIGHT: f32 = 8.0 + FOOTER_LINE + 9.0;
 
 fn grid_height() -> f32 {
     let cell: f32 = theme::CELL_HEIGHT.into();
@@ -630,11 +652,15 @@ impl Render for Popover {
         // Follow the system appearance without the views having to ask. The
         // window only repaints when something notifies it, so a light/dark flip
         // while the popover is up has to wake it explicitly.
-        if self.appearance.is_none() {
-            let this = cx.entity();
-            self.appearance = Some(window.observe_window_appearance(move |_window, cx| {
-                this.update(cx, |_, cx| cx.notify());
-            }));
+        let handle = window.window_handle();
+        if self.appearance.as_ref().map(|(h, _)| *h) != Some(handle) {
+            // A weak handle: the subscription is stored on this very entity, so
+            // a strong one would keep the popover alive forever.
+            let this = cx.weak_entity();
+            let subscription = window.observe_window_appearance(move |_window, cx| {
+                this.update(cx, |_, cx| cx.notify()).ok();
+            });
+            self.appearance = Some((handle, subscription));
         }
         let theme = Theme::for_appearance(window.appearance());
         if theme != self.theme {

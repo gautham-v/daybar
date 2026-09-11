@@ -4,6 +4,7 @@
 
 use chrono::{Local, NaiveDate, NaiveDateTime};
 use daybar::calendar::{stub::StubSource, CalendarSource};
+use daybar::ui::icons::Assets;
 use daybar::ui::popover::{self, Popover, PopoverEvent};
 use gpui::{
     div, point, px, size, App, AppContext, Application, Bounds, Focusable, IntoElement,
@@ -30,7 +31,7 @@ impl Render for Preview {
 }
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
+    Application::new().with_assets(Assets).run(|cx: &mut App| {
         popover::bind_keys(cx);
 
         let bounds = Bounds {
