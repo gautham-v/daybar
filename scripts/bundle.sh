@@ -65,7 +65,10 @@ if [ -z "$IDENTITY" ]; then
     | sed -n 's/.*"\(.*\)"/\1/p' | head -n 1)"
 fi
 if [ -n "$IDENTITY" ]; then
-  codesign --force --options runtime --sign "$IDENTITY" "$APP" \
+  # Hardened runtime blocks EventKit unless the calendars entitlement is present.
+  codesign --force --options runtime \
+    --entitlements "$(dirname "$0")/entitlements.plist" \
+    --sign "$IDENTITY" "$APP" \
     || echo "warning: codesign with '$IDENTITY' failed; calendar permission may not stick"
 else
   echo "note: no codesigning identity found; signing ad-hoc, so macOS will re-prompt on every rebuild"

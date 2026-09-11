@@ -26,7 +26,7 @@ pub const HEIGHT: f64 = 15.0;
 
 /// The calendar frame: a plain rounded-rect outline. No header band — at this
 /// size it read as a smudge and crowded the number.
-const STROKE: f64 = 1.5;
+const STROKE: f64 = 1.1;
 const RADIUS: f64 = 3.5;
 /// The day number.
 const FONT_SIZE: f64 = 10.0;
@@ -95,7 +95,7 @@ fn rounded_rect(cg: Option<&CGContext>, left: f64, bottom: f64, right: f64, top:
 
 /// The day number, centred in the frame.
 fn draw_number(label: &str) {
-    let font = NSFont::boldSystemFontOfSize(FONT_SIZE);
+    let font = unsafe { NSFont::systemFontOfSize_weight(FONT_SIZE, objc2_app_kit::NSFontWeightSemibold) };
     let black = NSColor::blackColor();
     let kern = NSNumber::new_f64(KERN);
     let attrs = unsafe {

@@ -59,7 +59,7 @@ features = [
     "NSStringDrawing",
     "NSColor",
     "NSCell",
-    "NSFont",
+    "NSFont", "NSFontDescriptor",
     "block2",
     "objc2-core-foundation",
     "objc2-core-graphics",
