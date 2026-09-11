@@ -52,9 +52,11 @@ pub const HOVER: Rgba = hex(0xefece7);
 /// The "–" placeholder in the week list.
 pub const PLACEHOLDER: Rgba = hex(0xb5b2ab);
 /// Out-of-month day numbers.
-pub const DIM: Rgba = hex_a(0x1a1a1a, 0.28);
+pub const DIM: Rgba = hex(0xc9c5be);
 /// Event dot under a day that has events.
-pub const DOT: Rgba = hex(0x8a8781);
+pub const DOT: Rgba = hex(0xc9c5be);
+/// Event dot under an out-of-month day.
+pub const DOT_DIM: Rgba = hex(0xe6e3dd);
 /// Dot under the selected day (drawn on the dark fill).
 pub const DOT_ON_SELECTED: Rgba = hex_a(0xfbfaf8, 0.7);
 
