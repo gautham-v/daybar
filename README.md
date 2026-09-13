@@ -18,6 +18,16 @@ It follows the system light/dark appearance, and each event wears its own calend
 <!-- Captured from `cargo run --example popover_preview` (stub data, no real meeting links).
      Crop the window and overwrite docs/screenshot.png. -->
 
+## Install
+
+```sh
+brew install --cask gautham-v/tap/daybar
+```
+
+The build is signed and notarized. On first launch macOS asks for calendar access; then turn on
+**Launch at login** from the `···` menu. The same `Daybar-<version>.zip` is on the
+[releases page](https://github.com/gautham-v/daybar/releases) if you would rather skip Homebrew.
+
 ## Build and run
 
 Requires Rust stable and Xcode (GPUI needs the Metal toolchain:
@@ -59,8 +69,9 @@ make install   # → /Applications/Daybar.app, relaunched from there
 
 ### Code signing
 
-The bundle is signed with the first identity `security find-identity -v -p codesigning`
-reports, or with whatever `CODESIGN_IDENTITY` names:
+The bundle is signed with the Developer ID Application identity on the machine if there is one,
+otherwise the first identity `security find-identity -v -p codesigning` reports, or with
+whatever `CODESIGN_IDENTITY` names:
 
 ```sh
 CODESIGN_IDENTITY="Apple Development: ..." make bundle

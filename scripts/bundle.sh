@@ -12,16 +12,21 @@ TARGET_DIR="$(cargo metadata --no-deps --format-version 1 --manifest-path "$ROOT
 TARGET_DIR="${TARGET_DIR:-$ROOT/target}"
 
 APP="$TARGET_DIR/Daybar.app"
-BIN="$TARGET_DIR/release/daybar"
+# DAYBAR_BIN points at a prebuilt binary (the release workflow passes the
+# universal one); otherwise build for this machine.
+BIN="${DAYBAR_BIN:-$TARGET_DIR/release/daybar}"
+VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -n 1)"
 
-cargo build --release --manifest-path "$ROOT/Cargo.toml"
+if [ -z "${DAYBAR_BIN:-}" ]; then
+  cargo build --release --manifest-path "$ROOT/Cargo.toml"
+fi
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/daybar"
 cp "$ROOT/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -41,7 +46,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>${VERSION}</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
@@ -60,12 +65,14 @@ PLIST
 
 # Sign with a stable identity when the machine has one. Ad-hoc signatures get a
 # fresh code identity on every rebuild, which makes macOS treat each build as a
-# different app: TCC re-prompts for calendar access (and mailbar re-prompts for
-# its Keychain item) every single launch. Override with CODESIGN_IDENTITY.
+# different app: TCC re-prompts for calendar access every single launch.
+# Override with CODESIGN_IDENTITY.
 IDENTITY="${CODESIGN_IDENTITY:-}"
 if [ -z "$IDENTITY" ]; then
-  IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
-    | sed -n 's/.*"\(.*\)"/\1/p' | head -n 1)"
+  # Prefer Developer ID, which Gatekeeper trusts, over an Xcode development
+  # certificate, which it does not.
+  IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(.*\)"/\1/p')"
+  IDENTITY="$(printf '%s\n' "$IDENTITIES" | grep -m1 '^Developer ID Application' || printf '%s\n' "$IDENTITIES" | head -n 1)"
 fi
 if [ -n "$IDENTITY" ]; then
   # Hardened runtime blocks EventKit unless the calendars entitlement is present.
