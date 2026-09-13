@@ -17,7 +17,7 @@ use gpui::{
 };
 use objc2::MainThreadMarker;
 
-use daybar::calendar::{eventkit::EventKitSource, CalendarStore};
+use daybar::calendar::{eventkit::EventKitSource, stub::StubSource, CalendarSource, CalendarStore};
 use daybar::status_item::{ScreenRect, StatusItem, StatusItemEvent};
 use daybar::ui::icons::Assets;
 use daybar::ui::popover::{self, Popover, PopoverEvent};
@@ -44,7 +44,15 @@ fn main() {
         daybar::status_item::set_accessory_activation_policy(mtm);
         popover::bind_keys(cx);
 
-        let store = CalendarStore::new(Box::new(EventKitSource::new()));
+        // DAYBAR_STUB=1 runs the real bundle over the deterministic stub
+        // calendar: for screenshots and for poking at the UI without touching
+        // Calendar.app.
+        let source: Box<dyn CalendarSource + Send> = if std::env::var_os("DAYBAR_STUB").is_some() {
+            Box::new(StubSource::new())
+        } else {
+            Box::new(EventKitSource::new())
+        };
+        let store = CalendarStore::new(source);
 
         let today = Local::now().date_naive();
         let (item, mut clicks) = StatusItem::new(mtm, today.day());

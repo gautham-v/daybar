@@ -95,7 +95,8 @@ fn rounded_rect(cg: Option<&CGContext>, left: f64, bottom: f64, right: f64, top:
 
 /// The day number, centred in the frame.
 fn draw_number(label: &str) {
-    let font = unsafe { NSFont::systemFontOfSize_weight(FONT_SIZE, objc2_app_kit::NSFontWeightSemibold) };
+    let font =
+        unsafe { NSFont::systemFontOfSize_weight(FONT_SIZE, objc2_app_kit::NSFontWeightSemibold) };
     let black = NSColor::blackColor();
     let kern = NSNumber::new_f64(KERN);
     let attrs = unsafe {
